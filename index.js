@@ -135,17 +135,20 @@ client.on('interactionCreate', async interaction => {
     if (commandName === 'listteams') {
         const guild = interaction.guild;
 
+        // Acknowledge fast so Discord doesn't time out
+        await interaction.deferReply({ ephemeral: true });
+
         // Find the "member-list" channel
         const channel = guild.channels.cache.find(
             c => c.name === "member-list" && c.type === ChannelType.GuildText
         );
 
         if (!channel) {
-            await interaction.reply({ content: "Channel **member-list** not found!", ephemeral: true });
+            await interaction.editReply("Channel **member-list** not found!");
             return;
         }
 
-        // Delete previous bot messages in the channel
+        // Delete previous bot messages
         const messages = await channel.messages.fetch({ limit: 20 });
         const botMessages = messages.filter(m => m.author.id === client.user.id);
 
@@ -153,7 +156,7 @@ client.on('interactionCreate', async interaction => {
             await msg.delete().catch(() => {});
         }
 
-        // Build taken list (safe member fetch)
+        // Build taken list safely
         const takenTeams = [];
         for (const t of teams.filter(t => t.takenBy)) {
             let coach;
@@ -179,14 +182,8 @@ client.on('interactionCreate', async interaction => {
             title: "🏈 Headset Dynasty – Team Availability",
             color: 0x2b2d31,
             fields: [
-                {
-                    name: "Taken Teams",
-                    value: taken
-                },
-                {
-                    name: "Available Teams",
-                    value: available
-                }
+                { name: "Taken Teams", value: taken },
+                { name: "Available Teams", value: available }
             ],
             timestamp: new Date()
         };
@@ -194,11 +191,12 @@ client.on('interactionCreate', async interaction => {
         // Send new embed
         const newMsg = await channel.send({ embeds: [embed] });
 
-        // Pin it
+        // Pin
         await newMsg.pin().catch(() => {});
 
-        await interaction.reply({ content: "Team list updated in **#member-list**.", ephemeral: true });
+        await interaction.editReply("Team list updated in **#member-list**.");
     }
+
 
 });
 
