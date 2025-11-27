@@ -165,7 +165,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (reaction.message.id !== rulesMessageId) return;
 
     // Check if the reaction is the ✅ emoji
-    if (reaction.emoji.name === '✅') {
+    if (reaction.emoji.name === 'white_check_mark') {
         // Trigger job offers logic for this user
         sendJobOffers(user);
     }
