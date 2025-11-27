@@ -10,7 +10,8 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMessages,
         GatewayIntentBits.MessageContent,
-        GatewayIntentBits.DirectMessages
+        GatewayIntentBits.DirectMessages,
+        GatewayIntentBits.GuildMessageReactions
     ],
 });
 
@@ -142,6 +143,68 @@ client.on('interactionCreate', async interaction => {
     }
 
 });
+
+client.on('messageReactionAdd', async (reaction, user) => {
+    // Ignore bot reactions
+    if (user.bot) return;
+
+    // Make sure we have the full message cached
+    if (reaction.partial) {
+        try {
+            await reaction.fetch();
+        } catch (error) {
+            console.error('Error fetching reaction:', error);
+            return;
+        }
+    }
+
+    // Only trigger for the rules message
+    // You can use message ID or check channel + some identifier
+    const rulesMessageId = '1437492224215486537';
+
+    if (reaction.message.id !== rulesMessageId) return;
+
+    // Check if the reaction is the ✅ emoji
+    if (reaction.emoji.name === '✅') {
+        // Trigger job offers logic for this user
+        sendJobOffers(user);
+    }
+});
+
+async function sendJobOffers(user) {
+    const availableTeams = teams.filter(t => !t.takenBy);
+    if (availableTeams.length === 0) {
+        try {
+            await user.send('No teams are currently available!');
+        } catch {}
+        return;
+    }
+
+    let offers = [];
+    let tempTeams = [...availableTeams];
+
+    for (let i = 0; i < 3; i++) {
+        if (tempTeams.length === 0) break;
+        const index = Math.floor(Math.random() * tempTeams.length);
+        offers.push(tempTeams[index]);
+        tempTeams.splice(index, 1);
+    }
+
+    // Store offers for DM
+    if (!client.userOffers) client.userOffers = {};
+    client.userOffers[user.id] = offers;
+
+    try {
+        await user.send(
+            `Your Headset Dynasty job offers:\n\n` +
+            offers.map((t, i) => `${i+1}️⃣ ${t.name}`).join('\n') +
+            `\n\nReply with the number of the team you want to accept.`
+        );
+    } catch (err) {
+        console.error(`Could not DM ${user.username}`, err);
+    }
+}
+
 
 async function announceInGeneral(client, message) {
     const guild = client.guilds.cache.first();
