@@ -142,8 +142,6 @@ client.on('interactionCreate', async interaction => {
             await member.roles.remove(role);
         }
 
-        await member.setNickname(null).catch(() => {});
-
         const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
         const channel = guild.channels.cache.find(c => c.name === channelName);
         if (channel) await channel.delete().catch(() => {});
@@ -287,8 +285,6 @@ client.on('messageCreate', async message => {
         const role = guild.roles.cache.find(r => r.name === "Head Coach");
         if (role) await member.roles.add(role);
 
-        await member.setNickname(team.name).catch(err => console.log("Could not change nickname:", err));
-
         let category = guild.channels.cache.find(
             c => c.name === "Text Channels" && c.type === 4
         );
@@ -352,7 +348,7 @@ async function sendTeamList(client) {
     const botMessages = messages.filter(m => m.author.id === client.user.id);
 
     for (const msg of botMessages.values()) {
-        await msg.delete().catch(() => { });
+        await msg.delete().catch(() => {});
     }
 
     const takenTeams = [];
@@ -363,10 +359,12 @@ async function sendTeamList(client) {
         } catch {
             coach = null;
         }
+
         takenTeams.push(
-            `🏈 **${t.name}** — ${coach ? coach.user.displayName : "Unknown Coach"}`
+            `🏈 **${t.name}** — ${coach ? `<@${coach.id}>` : "Unknown Coach"}`
         );
     }
+
     const taken = takenTeams.length ? takenTeams.join('\n') : "None";
 
     const available = teams
@@ -385,7 +383,7 @@ async function sendTeamList(client) {
     };
 
     const newMsg = await channel.send({ embeds: [embed] });
-    await newMsg.pin().catch(() => { });
+    await newMsg.pin().catch(() => {});
 }
 
 client.login(process.env.DISCORD_TOKEN);
