@@ -1,7 +1,16 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, SlashCommandBuilder, Routes } = require('discord.js');
-const { REST } = require('@discordjs/rest');
-const { ChannelType, PermissionFlagsBits } = require('discord.js');
+const { 
+    Client, 
+    GatewayIntentBits, 
+    SlashCommandBuilder, 
+    Routes, 
+    REST, 
+    ChannelType, 
+    PermissionFlagsBits,
+    Partials
+} = require('discord.js');
+
+const jobOfferUsed = new Set();
 const fs = require('fs');
 let teams = JSON.parse(fs.readFileSync('./teams.json'));
 
@@ -29,8 +38,8 @@ const commands = [
         .setDescription('Reset a user’s team and free it back up')
         .addUserOption(option =>
             option.setName('coach')
-            .setDescription('The coach to reset')
-            .setRequired(true)
+                .setDescription('The coach to reset')
+                .setRequired(true)
         )
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
@@ -41,7 +50,6 @@ const commands = [
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
-// Register the slash command for your server
 (async () => {
     try {
         console.log('Started refreshing application (/) commands.');
@@ -55,19 +63,31 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     }
 })();
 
-// Ready event
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
 });
 
-// Handle slash commands
+// ---------------------------------------------------------
+// SLASH COMMANDS
+// ---------------------------------------------------------
+
 client.on('interactionCreate', async interaction => {
     if (!interaction.isCommand()) return;
 
     const { commandName } = interaction;
 
+    // Soft-lock for slash command
     if (commandName === 'joboffers') {
-        // Filter only available teams
+
+        if (jobOfferUsed.has(interaction.user.id)) {
+            return interaction.reply({
+                content: "⛔ You’ve already received your job offer.",
+                ephemeral: true
+            });
+        }
+
+        jobOfferUsed.add(interaction.user.id);
+
         const availableTeams = teams.filter(t => !t.takenBy);
 
         if (availableTeams.length === 0) {
@@ -75,7 +95,6 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // Pick 3 unique random teams
         let offers = [];
         let tempTeams = [...availableTeams];
 
@@ -86,15 +105,13 @@ client.on('interactionCreate', async interaction => {
             tempTeams.splice(index, 1);
         }
 
-        // Store offers in memory for this user (we’ll need it to validate their reply)
         if (!client.userOffers) client.userOffers = {};
         client.userOffers[interaction.user.id] = offers;
 
-        // DM the user
         try {
             await interaction.user.send(
                 `Your Headset Dynasty job offers:\n\n` +
-                offers.map((t, i) => `${i+1}️⃣ ${t.name}`).join('\n') +
+                offers.map((t, i) => `${i + 1}️⃣ ${t.name}`).join('\n') +
                 `\n\nReply with the number of the team you want to accept.`
             );
             await interaction.reply({ content: 'Check your DMs for your job offers!', ephemeral: true });
@@ -109,7 +126,6 @@ client.on('interactionCreate', async interaction => {
         const guild = interaction.guild;
         const member = await guild.members.fetch(coach.id);
 
-        // Find which team they have
         const team = teams.find(t => t.takenBy === coach.id);
 
         if (!team) {
@@ -117,20 +133,16 @@ client.on('interactionCreate', async interaction => {
             return;
         }
 
-        // Free team
         team.takenBy = null;
         fs.writeFileSync('./teams.json', JSON.stringify(teams, null, 2));
 
-        // Remove Head Coach role
         const role = guild.roles.cache.find(r => r.name === "Head Coach");
         if (role && member.roles.cache.has(role.id)) {
             await member.roles.remove(role);
         }
 
-        // Reset nickname
         await member.setNickname(null).catch(() => {});
 
-        // Delete team channel
         const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
         const channel = guild.channels.cache.find(c => c.name === channelName);
         if (channel) await channel.delete().catch(() => {});
@@ -149,44 +161,38 @@ client.on('interactionCreate', async interaction => {
 
 });
 
-client.on('messageReactionAdd', async (reaction, user) => {
-    if (user.bot) return;
+// ---------------------------------------------------------
+// REACTION HANDLER
+// ---------------------------------------------------------
 
-    // Handle partial reaction/message
-    if (reaction.partial) {
-        try {
-            await reaction.fetch();
-        } catch (err) {
-            console.error('Failed to fetch reaction:', err);
-            return;
-        }
+client.on("messageReactionAdd", async (reaction, user) => {
+    try {
+        if (user.bot) return;
+
+        if (reaction.partial) await reaction.fetch();
+        if (reaction.message.partial) await reaction.message.fetch();
+
+        if (reaction.message.channel.id !== '1437485874190225548') return;
+
+        if (reaction.emoji.name !== "✅") return;
+
+        handleJobOffer(user, reaction.message.guild);
+
+    } catch (err) {
+        console.error("Reaction handler error:", err);
     }
-
-    if (reaction.message.partial) {
-        try {
-            await reaction.message.fetch();
-        } catch (err) {
-            console.error('Failed to fetch message:', err);
-            return;
-        }
-    }
-
-    const rulesMessageId = '1437492224215486537';
-
-    if (reaction.message.id !== rulesMessageId) return;
-    if (reaction.emoji.name !== '✅') return;
-
-    console.log(`✅ detected on rules by ${user.username}`);
-    sendJobOffers(user);
 });
 
+// ---------------------------------------------------------
+// JOB OFFER DM LOGIC
+// ---------------------------------------------------------
 
 async function sendJobOffers(user) {
     const availableTeams = teams.filter(t => !t.takenBy);
     if (availableTeams.length === 0) {
         try {
             await user.send('No teams are currently available!');
-        } catch {}
+        } catch { }
         return;
     }
 
@@ -200,14 +206,13 @@ async function sendJobOffers(user) {
         tempTeams.splice(index, 1);
     }
 
-    // Store offers for DM
     if (!client.userOffers) client.userOffers = {};
     client.userOffers[user.id] = offers;
 
     try {
         await user.send(
             `Your Headset Dynasty job offers:\n\n` +
-            offers.map((t, i) => `${i+1}️⃣ ${t.name}`).join('\n') +
+            offers.map((t, i) => `${i + 1}️⃣ ${t.name}`).join('\n') +
             `\n\nReply with the number of the team you want to accept.`
         );
     } catch (err) {
@@ -215,6 +220,111 @@ async function sendJobOffers(user) {
     }
 }
 
+// ---------------------------------------------------------
+// SOFT-LOCK LOGIC FOR REACTION
+// ---------------------------------------------------------
+
+async function handleJobOffer(user, guild, interaction = null) {
+    const userId = user.id;
+
+    if (jobOfferUsed.has(userId)) {
+        if (interaction) {
+            return interaction.reply({
+                content: "⛔ You’ve already received your job offer.",
+                ephemeral: true
+            });
+        } else {
+            try {
+                await user.send("⛔ You’ve already received your job offer.");
+            } catch (e) {
+                console.log("Failed to DM user:", e);
+            }
+            return;
+        }
+    }
+
+    jobOfferUsed.add(userId);
+
+    await sendJobOffers(user);
+}
+
+// ---------------------------------------------------------
+// DM RESPONSE HANDLER
+// ---------------------------------------------------------
+
+client.on('messageCreate', async message => {
+    if (message.author.bot || message.guild) return;
+
+    const userId = message.author.id;
+
+    if (!client.userOffers || !client.userOffers[userId]) return;
+
+    const offers = client.userOffers[userId];
+    const choice = parseInt(message.content);
+
+    if (!choice || choice < 1 || choice > offers.length) {
+        await message.reply('Please reply with the number corresponding to the team you want to accept.');
+        return;
+    }
+
+    const team = offers[choice - 1];
+
+    const teamObj = teams.find(t => t.name === team.name);
+    if (teamObj.takenBy) {
+        await message.reply('Sorry, that team was just taken by someone else.');
+        delete client.userOffers[userId];
+        return;
+    }
+
+    teamObj.takenBy = userId;
+    fs.writeFileSync('./teams.json', JSON.stringify(teams, null, 2));
+
+    const guilds = client.guilds.cache;
+    guilds.forEach(async guild => {
+        const member = await guild.members.fetch(userId);
+
+        const role = guild.roles.cache.find(r => r.name === "Head Coach");
+        if (role) await member.roles.add(role);
+
+        await member.setNickname(team.name).catch(err => console.log("Could not change nickname:", err));
+
+        let category = guild.channels.cache.find(
+            c => c.name === "Text Channels" && c.type === 4
+        );
+
+        const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
+
+        let channel = await guild.channels.create({
+            name: channelName,
+            type: ChannelType.GuildText,
+            parent: category?.id || null
+        });
+
+        await channel.send(
+            `Welcome Coach **${member.user.username}**!\n\n` +
+            `This is your channel for **${team.name}**.\n` +
+            `Use this space to post your game video streams and anything else you want about your team.\n\n` +
+            `Good luck this season! 🏈🔥`
+        );
+    });
+
+    await message.reply(
+        `Congratulations! You have accepted the team: **${team.name}**. Your private channel and role have been created.`
+    );
+
+    delete client.userOffers[userId];
+
+    await announceInGeneral(
+        client,
+        `🏈 **${message.author.username}** has claimed **${team.name}**!`
+    );
+
+    await sendTeamList(client);
+});
+
+// ---------------------------------------------------------
+// SUPPORTING FUNCTIONS
+// ---------------------------------------------------------
 
 async function announceInGeneral(client, message) {
     const guild = client.guilds.cache.first();
@@ -233,19 +343,17 @@ async function sendTeamList(client) {
     if (!guild) return;
 
     const channel = guild.channels.cache.find(
-        c => c.name === "member-list" && c.type === 0 // GuildText
+        c => c.name === "member-list" && c.type === 0
     );
     if (!channel) return;
 
-    // Delete prior bot messages
     const messages = await channel.messages.fetch({ limit: 20 });
     const botMessages = messages.filter(m => m.author.id === client.user.id);
 
     for (const msg of botMessages.values()) {
-        await msg.delete().catch(() => {});
+        await msg.delete().catch(() => { });
     }
 
-    // Build taken teams list
     const takenTeams = [];
     for (const t of teams.filter(t => t.takenBy)) {
         let coach;
@@ -260,13 +368,11 @@ async function sendTeamList(client) {
     }
     const taken = takenTeams.length ? takenTeams.join('\n') : "None";
 
-    // Build available list
     const available = teams
         .filter(t => !t.takenBy)
         .map(t => `🟢 ${t.name}`)
         .join('\n') || "None";
 
-    // Build embed
     const embed = {
         title: "🏈 Headset Dynasty – Team Availability",
         color: 0x2b2d31,
@@ -277,99 +383,8 @@ async function sendTeamList(client) {
         timestamp: new Date()
     };
 
-    // Post new embed and pin it
     const newMsg = await channel.send({ embeds: [embed] });
-    await newMsg.pin().catch(() => {});
+    await newMsg.pin().catch(() => { });
 }
-
-
-client.on('messageCreate', async message => {
-    // Only process DMs, ignore bot messages
-    if (message.author.bot || message.guild) return;
-
-    const userId = message.author.id;
-
-    if (!client.userOffers || !client.userOffers[userId]) return;
-
-    const offers = client.userOffers[userId];
-    const choice = parseInt(message.content);
-
-    if (!choice || choice < 1 || choice > offers.length) {
-        await message.reply('Please reply with the number corresponding to the team you want to accept.');
-        return;
-    }
-
-    const team = offers[choice - 1];
-
-    // Check if team is still available
-    const teamObj = teams.find(t => t.name === team.name);
-    if (teamObj.takenBy) {
-        await message.reply('Sorry, that team was just taken by someone else.');
-        delete client.userOffers[userId];
-        return;
-    }
-
-    // Assign the team to the user
-    teamObj.takenBy = userId;
-    fs.writeFileSync('./teams.json', JSON.stringify(teams, null, 2));
-
-    // Assign Discord role + create channel + set nickname
-    const guilds = client.guilds.cache;
-    guilds.forEach(async guild => {
-        const member = await guild.members.fetch(userId);
-
-        // Give Head Coach role
-        const role = guild.roles.cache.find(r => r.name === "Head Coach");
-        if (role) await member.roles.add(role);
-
-        // OPTIONAL: Change nickname to team name
-        await member.setNickname(team.name).catch(err => console.log("Could not change nickname:", err));
-
-        // Find the category named "Text Channels"
-        let category = guild.channels.cache.find(
-            c => c.name === "Text Channels" && c.type === 4
-        );
-        if (!category) {
-            console.log("Category 'Text Channels' not found!");
-        }
-
-        // Channel name (replace spaces with dashes)
-        const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
-
-        // Create the team channel (inherits permissions from category)
-        let channel = await guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        parent: category.id
-        });
-
-        // Post welcome message
-        const welcome = await channel.send(
-            `Welcome Coach **${member.user.username}**!\n\n` +
-            `This is your channel for **${team.name}**.\n` +
-            `Use this space to post your game video streams and anything else you want about your team.\n\n` +
-            `Good luck this season! 🏈🔥`
-        );
-
-    });
-
-
-    await message.reply(
-        `Congratulations! You have accepted the team: **${team.name}**. Your private channel and role have been created.`
-    );
-
-    delete client.userOffers[userId];
-
-    // Announce in #general
-    await announceInGeneral(
-        client,
-        `🏈 **${message.author.username}** has claimed **${team.name}**!`
-    );
-
-    // Refresh team list
-    await sendTeamList(client);
-});
-
-
 
 client.login(process.env.DISCORD_TOKEN);
