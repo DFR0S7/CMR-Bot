@@ -134,6 +134,7 @@ client.on('interactionCreate', async interaction => {
         }
 
         team.takenBy = null;
+        jobOfferUsed.delete(coach.id);
         fs.writeFileSync('./teams.json', JSON.stringify(teams, null, 2));
 
         const role = guild.roles.cache.find(r => r.name === "Head Coach");
@@ -301,7 +302,7 @@ client.on('messageCreate', async message => {
         });
 
         await channel.send(
-            `Welcome Coach **${member.user.username}**!\n\n` +
+            `Welcome Coach **${member.user.displayName}**!\n\n` +
             `This is your channel for **${team.name}**.\n` +
             `Use this space to post your game video streams and anything else you want about your team.\n\n` +
             `Good luck this season! 🏈🔥`
@@ -316,7 +317,7 @@ client.on('messageCreate', async message => {
 
     await announceInGeneral(
         client,
-        `🏈 **${message.author.username}** has claimed **${team.name}**!`
+        `🏈 **${message.author.displayName}** has claimed **${team.name}**!`
     );
 
     await sendTeamList(client);
@@ -363,7 +364,7 @@ async function sendTeamList(client) {
             coach = null;
         }
         takenTeams.push(
-            `🏈 **${t.name}** — ${coach ? coach.user.username : "Unknown Coach"}`
+            `🏈 **${t.name}** — ${coach ? coach.user.displayName : "Unknown Coach"}`
         );
     }
     const taken = takenTeams.length ? takenTeams.join('\n') : "None";
