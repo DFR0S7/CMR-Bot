@@ -1,6 +1,5 @@
 require("dotenv").config();
-const { REST, Routes } = require("discord.js");
-const { SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
+const { REST, Routes, SlashCommandBuilder, PermissionFlagsBits } = require("discord.js");
 
 const rest = new REST({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
 
@@ -23,16 +22,22 @@ const commands = [
   new SlashCommandBuilder()
     .setName("listteams")
     .setDescription("Post a list of available/taken teams")
-].map(cmd => cmd.toJSON());
+].map(c => c.toJSON());
 
 (async () => {
   try {
+    console.log("Uploading commands...");
+
     await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID),
+      Routes.applicationGuildCommands(
+        process.env.CLIENT_ID,
+        process.env.GUILD_ID
+      ),
       { body: commands }
     );
+
     console.log("Commands uploaded.");
-  } catch (e) {
-    console.error(e);
+  } catch (err) {
+    console.error(err);
   }
 })();
