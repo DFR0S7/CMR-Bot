@@ -89,7 +89,7 @@ client.on('interactionCreate', async interaction => {
 
         jobOfferUsed.add(interaction.user.id);
 
-        const availableTeams = teams.filter(t => !t.takenBy);
+        const availableTeams = teams.filter(t => !t.takenBy && t.stars !== null && t.stars <= 2);
 
         if (availableTeams.length === 0) {
             await interaction.reply({ content: 'No teams are currently available!', ephemeral: true });
@@ -112,7 +112,9 @@ client.on('interactionCreate', async interaction => {
         try {
             await interaction.user.send(
                 `Your Headset Dynasty job offers:\n\n` +
-                offers.map((t, i) => `${i + 1}️⃣ ${t.name}`).join('\n') +
+                offers
+                    .map((t, i) => `**${t.conference}**\n${i + 1}️⃣ ${t.name}`)
+                    .join('\n\n') +
                 `\n\nReply with the number of the team you want to accept.`
             );
             await interaction.reply({ content: 'Check your DMs for your job offers!', ephemeral: true });
@@ -212,7 +214,9 @@ async function sendJobOffers(user) {
     try {
         await user.send(
             `Your Headset Dynasty job offers:\n\n` +
-            offers.map((t, i) => `${i + 1}️⃣ ${t.name}`).join('\n') +
+            offers
+                .map((t, i) => `**${t.conference}**\n${i + 1}️⃣ ${t.name}`)
+                .join('\n\n') +
             `\n\nReply with the number of the team you want to accept.`
         );
     } catch (err) {
@@ -352,34 +356,54 @@ async function sendTeamList(client) {
         await msg.delete().catch(() => {});
     }
 
-    const takenTeams = [];
-    for (const t of teams.filter(t => t.takenBy)) {
-        let coach;
-        try {
-            coach = await guild.members.fetch(t.takenBy);
-        } catch {
-            coach = null;
+    // Group teams by conference
+    const conferences = {};
+    for (const team of teams) {
+        if (!conferences[team.conference]) {
+            conferences[team.conference] = { taken: [], available: [] };
         }
 
-        takenTeams.push(
-            `🏈 **${t.name}** — ${coach ? `<@${coach.id}>` : "Unknown Coach"}`
-        );
+        if (team.takenBy) {
+            conferences[team.conference].taken.push(team);
+        } else {
+            conferences[team.conference].available.push(team);
+        }
     }
 
-    const taken = takenTeams.length ? takenTeams.join('\n') : "None";
+    // Build embed fields
+    const fields = [];
 
-    const available = teams
-        .filter(t => !t.takenBy)
-        .map(t => `🟢 ${t.name}`)
-        .join('\n') || "None";
+    for (const [conf, data] of Object.entries(conferences)) {
+        const takenList = await Promise.all(
+            data.taken.map(async t => {
+                let coach;
+                try {
+                    coach = await guild.members.fetch(t.takenBy);
+                } catch {
+                    coach = null;
+                }
+                return `🏈 **${t.name}** — ${coach ? `<@${coach.id}>` : "Unknown Coach"}`;
+            })
+        );
+
+        const availableList = data.available
+            .map(t => `🟢 ${t.name}`)
+            .join("\n") || "None";
+
+        fields.push({
+            name: `🏆 ${conf}`,
+            value:
+                `**Taken Teams:**\n` +
+                (takenList.length ? takenList.join("\n") : "None") +
+                `\n\n**Available Teams:**\n` +
+                availableList
+        });
+    }
 
     const embed = {
-        title: "🏈 Headset Dynasty – Team Availability",
+        title: "🏈 Headset Dynasty – Team Availability by Conference",
         color: 0x2b2d31,
-        fields: [
-            { name: "Taken Teams", value: taken },
-            { name: "Available Teams", value: available }
-        ],
+        fields: fields,
         timestamp: new Date()
     };
 
