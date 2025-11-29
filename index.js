@@ -98,7 +98,7 @@ client.on('interactionCreate', async interaction => {
         let offers = [];
         let tempTeams = [...availableTeams];
 
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 4; i++) {
             if (tempTeams.length === 0) break;
             const index = Math.floor(Math.random() * tempTeams.length);
             offers.push(tempTeams[index]);
@@ -198,7 +198,7 @@ async function sendJobOffers(user) {
     let offers = [];
     let tempTeams = [...availableTeams];
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
         if (tempTeams.length === 0) break;
         const index = Math.floor(Math.random() * tempTeams.length);
         offers.push(tempTeams[index]);
