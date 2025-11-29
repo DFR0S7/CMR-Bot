@@ -349,61 +349,52 @@ async function sendTeamList(client) {
     );
     if (!channel) return;
 
+    // Delete old bot messages
     const messages = await channel.messages.fetch({ limit: 20 });
     const botMessages = messages.filter(m => m.author.id === client.user.id);
-
     for (const msg of botMessages.values()) {
         await msg.delete().catch(() => {});
     }
 
-    // Group teams by conference
-    const conferences = {};
-    for (const team of teams) {
-        if (!conferences[team.conference]) {
-            conferences[team.conference] = { taken: [], available: [] };
+    // Load fresh teams.json since you are manually editing stars
+    const data = JSON.parse(fs.readFileSync('./teams.json'));
+
+    let description = "";
+
+    for (const conf of data.conferences) {
+        description += `\n__**${conf.name}**__\n`;
+
+        const filteredTeams = conf.teams.filter(t => parseFloat(t.stars) <= 2);
+
+        if (filteredTeams.length === 0) {
+            description += "_No 2-star or below teams in this conference._\n";
+            continue;
         }
 
-        if (team.takenBy) {
-            conferences[team.conference].taken.push(team);
-        } else {
-            conferences[team.conference].available.push(team);
-        }
-    }
-
-    // Build embed fields
-    const fields = [];
-
-    for (const [conf, data] of Object.entries(conferences)) {
-        const takenList = await Promise.all(
-            data.taken.map(async t => {
+        for (const team of filteredTeams) {
+            if (team.takenBy) {
                 let coach;
                 try {
-                    coach = await guild.members.fetch(t.takenBy);
+                    coach = await guild.members.fetch(team.takenBy);
                 } catch {
                     coach = null;
                 }
-                return `🏈 **${t.name}** — ${coach ? `<@${coach.id}>` : "Unknown Coach"}`;
-            })
-        );
 
-        const availableList = data.available
-            .map(t => `🟢 ${t.name}`)
-            .join("\n") || "None";
+                const coachName = coach ? coach.displayName : "Unknown Coach";
 
-        fields.push({
-            name: `🏆 ${conf}`,
-            value:
-                `**Taken Teams:**\n` +
-                (takenList.length ? takenList.join("\n") : "None") +
-                `\n\n**Available Teams:**\n` +
-                availableList
-        });
+                description += `🏈 **${team.name}** (${team.stars}⭐) — Taken by **${coachName}**\n`;
+            } else {
+                description += `🟢 **${team.name}** (${team.stars}⭐) — Available\n`;
+            }
+        }
+
+        description += "\n";
     }
 
     const embed = {
-        title: "🏈 Headset Dynasty – Team Availability by Conference",
+        title: "🏈 Headset Dynasty – 2★ and Below Teams",
         color: 0x2b2d31,
-        fields: fields,
+        description: description,
         timestamp: new Date()
     };
 
