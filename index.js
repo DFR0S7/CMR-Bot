@@ -120,8 +120,6 @@ client.once('ready', () => {
 // ---------------------------------------------------------
 
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isCommand()) return;
-
     if (interaction.isAutocomplete()) {
         const focusedOption = interaction.options.getFocused(true);
         if (focusedOption.name === 'opponent') {
@@ -148,7 +146,8 @@ client.on('interactionCreate', async interaction => {
         return; // don't continue to command handler
     }
 
-
+    // COMMAND HANDLER
+    if (!interaction.isCommand()) return;
     const { commandName } = interaction;
 
     // Soft-lock for slash command
