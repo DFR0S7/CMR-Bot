@@ -23,6 +23,13 @@ const {
     Partials
 } = require('discord.js');
 
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_KEY
+);
+
 const jobOfferUsed = new Set();
 const fs = require('fs');
 let teams = JSON.parse(fs.readFileSync('./teams.json'));
@@ -113,6 +120,10 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 
 client.once('ready', () => {
     console.log(`Logged in as ${client.user.tag}`);
+        (async () => {
+    const { data, error } = await supabase.from("teams").select("id").limit(1);
+    console.log("Supabase test:", { data, error });
+    })();
 });
 
 // ---------------------------------------------------------
