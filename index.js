@@ -325,15 +325,18 @@ client.on('interactionCreate', async interaction => {
     // /resetteam
     // ---------------------------
     if (name === 'resetteam') {
+      // Defer reply immediately since this operation takes time
+      await interaction.deferReply({ ephemeral: true });
+
       const coach = interaction.options.getUser('coach');
       // find team by taken_by
       const { data: teamData, error } = await supabase.from('teams').select('*').eq('taken_by', coach.id).limit(1).maybeSingle();
       if (error) {
         console.error("resetteam query error:", error);
-        return interaction.reply({ ephemeral: true, content: `Error: ${error.message}` });
+        return interaction.editReply(`Error: ${error.message}`);
       }
       if (!teamData) {
-        return interaction.reply({ ephemeral: true, content: `${coach.username} has no team.` });
+        return interaction.editReply(`${coach.username} has no team.`);
       }
 
       // Remove from teams table
@@ -372,7 +375,7 @@ client.on('interactionCreate', async interaction => {
       // Trigger listteams update
       await runListTeamsDisplay();
 
-      return interaction.reply({ ephemeral: true, content: `Reset team ${teamData.name}. Channel deleted and role removed.` });
+      return interaction.editReply(`Reset team ${teamData.name}. Channel deleted and role removed.`);
     }
 
     // ---------------------------
