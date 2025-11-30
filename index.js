@@ -335,10 +335,13 @@ client.on('interactionCreate', async interaction => {
       const guild = client.guilds.cache.first();
       if (guild) {
         try {
-          const teamChannel = guild.channels.cache.find(c => c.name === teamData.name.toLowerCase().replace(/\s+/g, '-') && c.isTextBased());
-          if (teamChannel) {
-            await teamChannel.delete("Team reset - removing team");
-            console.log(`Deleted channel for ${teamData.name}`);
+          const textChannelsCategory = guild.channels.cache.find(c => c.name === 'Text Channels' && c.isCategory());
+          if (textChannelsCategory) {
+            const teamChannel = guild.channels.cache.find(c => c.name === teamData.name.toLowerCase().replace(/\s+/g, '-') && c.isTextBased() && c.parentId === textChannelsCategory.id);
+            if (teamChannel) {
+              await teamChannel.delete("Team reset - removing team");
+              console.log(`Deleted channel for ${teamData.name}`);
+            }
           }
         } catch (err) {
           console.error(`Failed to delete channel for ${teamData.name}:`, err);
@@ -347,7 +350,7 @@ client.on('interactionCreate', async interaction => {
         // Remove Head Coach role
         try {
           const member = await guild.members.fetch(coach.id);
-          const headCoachRole = guild.roles.cache.find(r => r.name === 'Head Coach');
+          const headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
           if (headCoachRole && member) {
             await member.roles.remove(headCoachRole, "Team reset - removing coach role");
             console.log(`Removed Head Coach role from ${coach.username}`);
@@ -635,9 +638,18 @@ client.on('messageCreate', async msg => {
       // Create team-specific channel (named after school name)
       try {
         const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
+        // Find or create the Text Channels category
+        let textChannelsCategory = guild.channels.cache.find(c => c.name === 'Text Channels' && c.isCategory());
+        if (!textChannelsCategory) {
+          textChannelsCategory = await guild.channels.create({
+            name: 'Text Channels',
+            type: ChannelType.GuildCategory
+          });
+        }
         const newChannel = await guild.channels.create({
           name: channelName,
           type: ChannelType.GuildText,
+          parent: textChannelsCategory.id,
           reason: `Team channel for ${team.name}`
         });
         console.log(`Created channel #${channelName} for ${team.name}`);
@@ -651,10 +663,10 @@ client.on('messageCreate', async msg => {
       // Assign Head Coach role to user
       try {
         const member = await guild.members.fetch(userId);
-        let headCoachRole = guild.roles.cache.find(r => r.name === 'Head Coach');
+        let headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
         if (!headCoachRole) {
           headCoachRole = await guild.roles.create({
-            name: 'Head Coach',
+            name: 'head coach',
             reason: 'Role for team heads'
           });
         }
