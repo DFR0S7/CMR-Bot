@@ -173,6 +173,17 @@ async function runListTeamsDisplay() {
     const channel = guild.channels.cache.find(c => c.name === 'member-list' && c.isTextBased());
     if (!channel) return false;
 
+    // delete old bot messages FIRST
+    try {
+      const messages = await channel.messages.fetch({ limit: 100 });
+      const botMessages = messages.filter(m => m.author.id === client.user.id);
+      for (const m of botMessages.values()) {
+        try { await m.delete(); } catch {}
+      }
+    } catch (err) {
+      console.error("Error fetching/deleting old messages:", err);
+    }
+
     let text = "";
     for (const [conf, tList] of Object.entries(confMap)) {
       // only show teams with stars <= 2.0
@@ -199,15 +210,13 @@ async function runListTeamsDisplay() {
       timestamp: new Date()
     };
 
-    // delete old bot messages
-    const messages = await channel.messages.fetch({ limit: 50 });
-    const botMessages = messages.filter(m => m.author.id === client.user.id);
-    for (const m of botMessages.values()) {
-      try { await m.delete(); } catch {}
-    }
-
     // send fresh list
-    await channel.send({ embeds: [embed] });
+    try {
+      await channel.send({ embeds: [embed] });
+    } catch (err) {
+      console.error("Error sending team list:", err);
+      return false;
+    }
     return true;
   } catch (err) {
     console.error("runListTeamsDisplay error:", err);
@@ -335,7 +344,7 @@ client.on('interactionCreate', async interaction => {
       const guild = client.guilds.cache.first();
       if (guild) {
         try {
-          const textChannelsCategory = guild.channels.cache.find(c => c.name === 'Text Channels' && c.isCategory());
+          const textChannelsCategory = guild.channels.cache.find(c => c.name === 'Text Channels' && c.type === ChannelType.GuildCategory);
           if (textChannelsCategory) {
             const teamChannel = guild.channels.cache.find(c => c.name === teamData.name.toLowerCase().replace(/\s+/g, '-') && c.isTextBased() && c.parentId === textChannelsCategory.id);
             if (teamChannel) {
@@ -639,7 +648,7 @@ client.on('messageCreate', async msg => {
       try {
         const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
         // Find or create the Text Channels category
-        let textChannelsCategory = guild.channels.cache.find(c => c.name === 'Text Channels' && c.isCategory());
+        let textChannelsCategory = guild.channels.cache.find(c => c.name === 'Text Channels' && c.type === ChannelType.GuildCategory);
         if (!textChannelsCategory) {
           textChannelsCategory = await guild.channels.create({
             name: 'Text Channels',
