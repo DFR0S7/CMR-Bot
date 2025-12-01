@@ -468,15 +468,11 @@ client.on('interactionCreate', async interaction => {
               }
             }
 
+            const boxScore = `┌─ ${userTeam.name} ─┐\n│ ${userTeam.name.padEnd(15)} ${userScore}\n│ ${opponentTeam.name.padEnd(15)} ${opponentScore}\n│ Record: ${userTeam.name} ${wins}-${losses}\n│ Summary: ${summary}\n└───────────┘`;
             const embed = {
               title: `Game Result: ${userTeam.name} vs ${opponentTeam.name}`,
               color: resultText === 'W' ? 0x00ff00 : 0xff0000,
-              fields: [
-                { name: userTeam.name, value: `${userScore}`, inline: true },
-                { name: opponentTeam.name, value: `${opponentScore}`, inline: true },
-                { name: 'Record', value: `${userTeam.name} ${wins}-${losses}`, inline: false }
-              ],
-              description: summary,
+              description: boxScore,
               timestamp: new Date()
             };
             await newsChannel.send({ embeds: [embed] }).catch(e => console.error("failed to post news-feed:", e));
@@ -539,9 +535,9 @@ client.on('interactionCreate', async interaction => {
       // fetch news_feed posts since last advance (week == currentWeek)
       // fetch news_feed posts since last advance (week == currentWeek)
       const newsResp = await supabase.from('news_feed').select('text').eq('week', currentWeek);
-      let summaryText = "No news this week.";
+      let pressReleaseBullets = [];
       if (newsResp.data && newsResp.data.length > 0) {
-        summaryText = newsResp.data.map(n => n.text).join("\n\n");
+        pressReleaseBullets = newsResp.data.map(n => `• ${n.text}`);
       }
 
       // Also include game results for this week (if results table has week column)
@@ -581,8 +577,17 @@ client.on('interactionCreate', async interaction => {
           const weekLabel = Math.max(0, currentWeek - 1);
           const header = `**Weekly Summary (Season ${currentSeason} — Week ${weekLabel})**`;
           const bodyParts = [];
-          if (summaryText) bodyParts.push(summaryText);
-          if (weeklyResultsText) bodyParts.push(`**Game Results:**\n${weeklyResultsText}`);
+          
+          // Add press releases as bullet points
+          if (pressReleaseBullets.length > 0) {
+            bodyParts.push(pressReleaseBullets.join('\n'));
+          }
+          
+          // Add game results
+          if (weeklyResultsText) {
+            bodyParts.push(`**Game Results:**\n${weeklyResultsText}`);
+          }
+          
           const body = bodyParts.length > 0 ? bodyParts.join('\n\n') : 'No news this week.';
           await newsFeedChannel.send(`${header}\n\n${body}`).catch(() => {});
         }
