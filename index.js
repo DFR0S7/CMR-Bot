@@ -588,21 +588,36 @@ client.on('interactionCreate', async interaction => {
         const newsFeedChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
         if (newsFeedChannel) {
           const weekLabel = Math.max(0, currentWeek - 1);
-          const header = `**Weekly Summary (Season ${currentSeason} — Week ${weekLabel})**`;
+          const title = `Weekly Summary (Season ${currentSeason} — Week ${weekLabel})`;
           const bodyParts = [];
-          
+
           // Add press releases as bullet points
           if (pressReleaseBullets.length > 0) {
             bodyParts.push(pressReleaseBullets.join('\n'));
           }
-          
+
           // Add game results
           if (weeklyResultsText) {
             bodyParts.push(`**Game Results:**\n${weeklyResultsText}`);
           }
-          
+
           const body = bodyParts.length > 0 ? bodyParts.join('\n\n') : 'No news this week.';
-          await newsFeedChannel.send(`${header}\n\n${body}`).catch(() => {});
+
+          const embed = {
+            title,
+            description: body,
+            color: 0x1e90ff,
+            timestamp: new Date()
+          };
+
+          // Post to news-feed
+          await newsFeedChannel.send({ embeds: [embed] }).catch(() => {});
+
+          // Also post the weekly summary embed to #general
+          const generalChannel = guild.channels.cache.find(c => c.name === 'general' && c.isTextBased());
+          if (generalChannel) {
+            await generalChannel.send({ embeds: [embed] }).catch(() => {});
+          }
         }
       }
 
