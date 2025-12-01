@@ -52,17 +52,20 @@ if (!globalThis.jobOfferUsedGlobal) globalThis.jobOfferUsedGlobal = jobOfferUsed
 const commands = [
   new SlashCommandBuilder()
     .setName('joboffers')
-    .setDescription('Get your Headset Dynasty job offers'),
+    .setDescription('Get your Headset Dynasty job offers')
+    .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('resetteam')
-    .setDescription('Reset a user’s team')
+    .setDescription('Reset a user\'s team')
     .addUserOption(o => o.setName('coach').setDescription('The coach to reset').setRequired(true))
+    .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('listteams')
-    .setDescription('Post a list of taken and available teams'),
+    .setDescription('Post a list of taken and available teams')
+    .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('game-result')
@@ -70,21 +73,25 @@ const commands = [
     .addStringOption(option => option.setName('opponent').setDescription('Opponent team').setRequired(true).setAutocomplete(true))
     .addIntegerOption(option => option.setName('your_score').setDescription('Your team score').setRequired(true))
     .addIntegerOption(option => option.setName('opponent_score').setDescription('Opponent score').setRequired(true))
-    .addStringOption(option => option.setName('summary').setDescription('Game summary').setRequired(true)),
+    .addStringOption(option => option.setName('summary').setDescription('Game summary').setRequired(true))
+    .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('press-release')
     .setDescription('Post a press release')
-    .addStringOption(option => option.setName('text').setDescription('Text to post').setRequired(true)),
+    .addStringOption(option => option.setName('text').setDescription('Text to post').setRequired(true))
+    .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('advance')
     .setDescription('Advance to next week (commissioner only)')
+    .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('season-advance')
     .setDescription('Advance to next season (commissioner only)')
+    .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(c => c.toJSON());
 
@@ -93,8 +100,61 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 (async () => {
   try {
     console.log("Registering guild commands...");
-    await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
+    const registeredCommands = await rest.put(Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID), { body: commands });
     console.log("Slash commands registered.");
+
+    // Set up role-based permissions: only 'head coach' role can see/use commands
+    // (except admin commands which are already restricted)
+    const guild = client.guilds.cache.first();
+    if (guild && registeredCommands && registeredCommands.length > 0) {
+      setTimeout(async () => {
+        try {
+          const headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
+          if (headCoachRole) {
+            // Get all command IDs for permission setup
+            const commandIds = {};
+            registeredCommands.forEach(cmd => {
+              commandIds[cmd.name] = cmd.id;
+            });
+
+            // Set permissions: allow 'head coach' role, deny @everyone
+            const permissions = [];
+            
+            // Commands visible to 'head coach' only
+            const publicCommands = ['joboffers', 'listteams', 'game-result', 'press-release'];
+            for (const cmdName of publicCommands) {
+              if (commandIds[cmdName]) {
+                permissions.push({
+                  id: commandIds[cmdName],
+                  permissions: [
+                    {
+                      id: headCoachRole.id,
+                      type: 'ROLE',
+                      permission: true
+                    },
+                    {
+                      id: guild.id,
+                      type: 'ROLE',
+                      permission: false
+                    }
+                  ]
+                });
+              }
+            }
+
+            if (permissions.length > 0) {
+              await rest.put(
+                Routes.guildApplicationCommandsPermissions(process.env.CLIENT_ID, process.env.GUILD_ID),
+                { body: permissions }
+              );
+              console.log("Command permissions set: head coach role only.");
+            }
+          }
+        } catch (err) {
+          console.error("Failed to set command permissions:", err);
+        }
+      }, 1000);
+    }
   } catch (err) {
     console.error("Failed to register commands:", err);
   }
