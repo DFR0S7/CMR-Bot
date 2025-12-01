@@ -911,6 +911,40 @@ client.on('messageCreate', async msg => {
 // ---------------------------------------------------------
 // START BOT
 // ---------------------------------------------------------
+// Global error handlers and graceful shutdown
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', async (err) => {
+  console.error('Uncaught Exception:', err);
+  try {
+    if (client && client.destroy) await client.destroy();
+  } catch (e) {
+    console.error('Error during client.destroy() after uncaughtException:', e);
+  }
+  // Exit with failure - let the hosting platform restart the process
+  process.exit(1);
+});
+
+client.on('error', (err) => console.error('Discord client error:', err));
+client.on('warn', (info) => console.warn('Discord client warning:', info));
+client.on('shardError', (error) => console.error('Discord client shardError:', error));
+
+const _shutdown = async (signal) => {
+  console.log(`Received ${signal} - shutting down gracefully...`);
+  try {
+    if (client && client.destroy) await client.destroy();
+  } catch (e) {
+    console.error('Error during client.destroy() in shutdown:', e);
+  }
+  // Give logs a moment to flush
+  setTimeout(() => process.exit(0), 500);
+};
+
+process.on('SIGTERM', () => _shutdown('SIGTERM'));
+process.on('SIGINT', () => _shutdown('SIGINT'));
+
 client.login(process.env.DISCORD_TOKEN).catch(e => {
   console.error("Failed to login:", e);
 });
