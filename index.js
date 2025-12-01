@@ -53,7 +53,8 @@ const commands = [
   new SlashCommandBuilder()
     .setName('joboffers')
     .setDescription('Get your Headset Dynasty job offers')
-    .setDMPermission(false),
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('resetteam')
@@ -65,7 +66,8 @@ const commands = [
   new SlashCommandBuilder()
     .setName('listteams')
     .setDescription('Post a list of taken and available teams')
-    .setDMPermission(false),
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('game-result')
@@ -138,7 +140,7 @@ client.once('ready', async () => {
     }
 
     // Commands that should be visible to 'head coach' only
-    const publicCommands = ['joboffers', 'listteams', 'game-result', 'press-release'];
+    const publicCommands = ['game-result', 'press-release'];
 
     for (const cmd of guildCommands.values()) {
       if (publicCommands.includes(cmd.name)) {
