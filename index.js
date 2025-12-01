@@ -647,7 +647,7 @@ client.on('interactionCreate', async interaction => {
           weeklyResultsText = weeklyResp.data.map(r => {
             const rec = records[r.user_team_id] || { wins: 0, losses: 0 };
             return `${r.user_team_name} ${r.user_score} - ${r.opponent_team_name} ${r.opponent_score}\n${r.user_team_name} (${rec.wins}-${rec.losses})`;
-          }).join('\n');
+          }).join('\n\n');
         }
       } catch (err) {
         console.error('Failed to fetch weekly results for summary:', err);
