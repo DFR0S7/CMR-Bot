@@ -468,7 +468,7 @@ client.on('interactionCreate', async interaction => {
               }
             }
 
-            const boxScore = `┌─ ${userTeam.name} ─┐\n│ ${userTeam.name.padEnd(15)} ${userScore}\n│ ${opponentTeam.name.padEnd(15)} ${opponentScore}\n│ Record: ${userTeam.name} ${wins}-${losses}\n│ Summary: ${summary}\n└───────────┘`;
+            const boxScore = `┌─ ${userTeam.name} ─┐\n ${userTeam.name.padEnd(15)} ${userScore}\n ${opponentTeam.name.padEnd(15)} ${opponentScore}\n Record: ${userTeam.name} ${wins}-${losses}\n Summary: ${summary}\n└───────────┘`;
             const embed = {
               title: `Game Result: ${userTeam.name} vs ${opponentTeam.name}`,
               color: resultText === 'W' ? 0x00ff00 : 0xff0000,
@@ -502,11 +502,20 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ ephemeral: true, content: `Error: ${insert.error.message}` });
       }
 
-      // also post to news-feed channel
+      // also post to news-feed channel as a styled embed
       const guild = client.guilds.cache.first();
       if (guild) {
         const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
-        if (newsChannel) await newsChannel.send(`Press release:\n\n${text}`).catch(() => {});
+        if (newsChannel) {
+          const prBox = `┌─ Press Release ─┐\n${text}\n└───────────────┘`;
+          const embed = {
+            title: `Press Release`,
+            color: 0xffa500,
+            description: prBox,
+            timestamp: new Date()
+          };
+          await newsChannel.send({ embeds: [embed] }).catch(() => {});
+        }
       }
 
       return interaction.reply({ ephemeral: true, content: "Press release posted." });
@@ -524,6 +533,9 @@ client.on('interactionCreate', async interaction => {
       // get current week
       const weekResp = await supabase.from('meta').select('value').eq('key','current_week').maybeSingle();
       const currentWeek = weekResp.data?.value ? Number(weekResp.data.value) : 1;
+      // get current season (needed for weekly summaries and records)
+      const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
+      const currentSeason = seasonResp.data?.value ? Number(seasonResp.data.value) : 1;
 
       // post advance message in advance channel
       const guild = client.guilds.cache.first();
@@ -612,9 +624,9 @@ client.on('interactionCreate', async interaction => {
       const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
       const currentSeason = seasonResp.data?.value ? Number(seasonResp.data.value) : 1;
 
-      // increment season, reset week to 1
+      // increment season, reset week to 0 (week numbering starts at 0)
       await supabase.from('meta').update({ value: currentSeason + 1 }).eq('key','current_season');
-      await supabase.from('meta').update({ value: 1 }).eq('key','current_week');
+      await supabase.from('meta').update({ value: 0 }).eq('key','current_week');
 
       // announce season advance in advance channel
       try {
@@ -629,7 +641,7 @@ client.on('interactionCreate', async interaction => {
         console.error('Failed to post season advance message:', err);
       }
 
-      return interaction.reply({ ephemeral: true, content: `Season advanced to ${currentSeason + 1}, week reset to 1.` });
+      return interaction.reply({ ephemeral: true, content: `Season advanced to ${currentSeason + 1}, week reset to 0.` });
     }
 
   } catch (err) {
