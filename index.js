@@ -406,11 +406,12 @@ client.on('interactionCreate', async interaction => {
       const opponentScore = interaction.options.getInteger('opponent_score');
       const summary = interaction.options.getString('summary');
 
-      // get current season and week from meta table (keys = 'current_season','current_week'), fallback to 1 and 1
+      // get current season and week from meta table (keys = 'current_season','current_week')
+      // Use nullish checks so a stored 0 is honored (week starts at 0)
       const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
       const weekResp = await supabase.from('meta').select('value').eq('key','current_week').maybeSingle();
-      const currentSeason = seasonResp.data?.value ? Number(seasonResp.data.value) : 1;
-      const currentWeek = weekResp.data?.value ? Number(weekResp.data.value) : 1;
+      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
 
       // find user's team
       const { data: userTeam, error: userTeamErr } = await supabase.from('teams').select('*').eq('taken_by', interaction.user.id).maybeSingle();
@@ -490,11 +491,11 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'press-release') {
       const text = interaction.options.getString('text');
-      // get season/week
+      // get season/week (allow week 0)
       const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
       const weekResp = await supabase.from('meta').select('value').eq('key','current_week').maybeSingle();
-      const season = seasonResp.data?.value ? Number(seasonResp.data.value) : 1;
-      const week = weekResp.data?.value ? Number(weekResp.data.value) : 1;
+      const season = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+      const week = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
 
       const insert = await supabase.from('news_feed').insert([{ season, week, text }]);
       if (insert.error) {
@@ -530,12 +531,12 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ ephemeral: true, content: "Only the commissioner can advance the week." });
       }
 
-      // get current week
+      // get current week and season (allow week 0)
       const weekResp = await supabase.from('meta').select('value').eq('key','current_week').maybeSingle();
-      const currentWeek = weekResp.data?.value ? Number(weekResp.data.value) : 1;
+      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
       // get current season (needed for weekly summaries and records)
       const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
-      const currentSeason = seasonResp.data?.value ? Number(seasonResp.data.value) : 1;
+      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
 
       // post advance message in advance channel
       const guild = client.guilds.cache.first();
