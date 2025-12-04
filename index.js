@@ -131,13 +131,21 @@ const commands = [
     .setName('ranking')
     .setDescription('Show current season rankings (commissioner only)')
     .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addBooleanOption(opt => opt
+      .setName('public')
+      .setDescription('Post to #general (default: private)')
+      .setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('ranking-all-time')
     .setDescription('Show all-time rankings across seasons (commissioner only)')
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addBooleanOption(opt => opt
+      .setName('public')
+      .setDescription('Post to #general (default: private)')
+      .setRequired(false))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -578,6 +586,7 @@ client.on('interactionCreate', async interaction => {
       const resultText = userScore > opponentScore ? 'W' : 'L';
 
       // include current week when inserting results so weekly summaries can query by week
+      // Also capture taken_by and taken_by_name to track which user owned the team at this time
       const insertResp = await supabase.from('results').insert([{
         season: currentSeason,
         week: currentWeek,
@@ -588,7 +597,9 @@ client.on('interactionCreate', async interaction => {
         user_score: userScore,
         opponent_score: opponentScore,
         summary,
-        result: resultText
+        result: resultText,
+        taken_by: userTeam.taken_by,
+        taken_by_name: userTeam.taken_by_name || interaction.user.username
       }]);
 
       if (insertResp.error) {
@@ -596,15 +607,17 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ ephemeral: true, content: `Failed to save result: ${insertResp.error.message}` });
       }
 
-      // Update records table for both teams (if applicable)
+      // Update records table for both users (if applicable)
       try {
         const isOpponentUserControlled = opponentTeam.taken_by != null;
 
-        // Upsert/update submitting team's record
+        // Upsert/update submitting user's record (keyed by season + taken_by, not team_id)
         await supabase.from('records').upsert({
           season: currentSeason,
           team_id: userTeam.id,
           team_name: userTeam.name,
+          taken_by: userTeam.taken_by,
+          taken_by_name: userTeam.taken_by_name || interaction.user.username,
           wins: resultText === 'W' ? 1 : 0,
           losses: resultText === 'L' ? 1 : 0,
           user_wins: isOpponentUserControlled && resultText === 'W' ? 1 : 0,
@@ -618,6 +631,8 @@ client.on('interactionCreate', async interaction => {
             season: currentSeason,
             team_id: opponentTeam.id,
             team_name: opponentTeam.name,
+            taken_by: opponentTeam.taken_by,
+            taken_by_name: opponentTeam.taken_by_name || 'Unknown',
             wins: oppResultText === 'W' ? 1 : 0,
             losses: oppResultText === 'L' ? 1 : 0,
             user_wins: oppResultText === 'W' ? 1 : 0,
@@ -837,7 +852,8 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ ephemeral: true, content: "Only the commissioner can view rankings." });
       }
 
-      await interaction.deferReply({ flags: 64 }); // ephemeral
+      const isPublic = interaction.options.getBoolean('public') || false;
+      await interaction.deferReply({ flags: isPublic ? 0 : 64 }); // 0 = public, 64 = ephemeral
 
       try {
         const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
@@ -851,20 +867,27 @@ client.on('interactionCreate', async interaction => {
         const { data: results, error: resultsErr } = await supabase.from('results').select('*').eq('season', currentSeason);
         if (resultsErr) throw resultsErr;
 
-        // Build map of H2H records: "teamA_vs_teamB" => wins for teamA
+        // Build map of H2H records: "userA_vs_userB" => wins for userA
         const h2hMap = {};
         if (results) {
           for (const r of results) {
-            const key = `${r.user_team_id}_vs_${r.opponent_team_id}`;
-            if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
-            if (r.result === 'W') h2hMap[key].wins++;
-            else h2hMap[key].losses++;
+            // Only count user vs user matches
+            if (r.taken_by && r.opponent_team_id) {
+              // Try to find opponent's taken_by from records
+              const oppRecord = (records || []).find(rec => rec.team_id === r.opponent_team_id);
+              if (oppRecord && oppRecord.taken_by) {
+                const key = `${r.taken_by}_vs_${oppRecord.taken_by}`;
+                if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
+                if (r.result === 'W') h2hMap[key].wins++;
+                else h2hMap[key].losses++;
+              }
+            }
           }
         }
 
-        // Helper to calculate H2H win% between two teams
-        const getH2HWinPct = (teamAId, teamBId) => {
-          const key = `${teamAId}_vs_${teamBId}`;
+        // Helper to calculate H2H win% between two users
+        const getH2HWinPct = (userAId, userBId) => {
+          const key = `${userAId}_vs_${userBId}`;
           if (!h2hMap[key]) return 0;
           const { wins, losses } = h2hMap[key];
           return (wins + losses) > 0 ? wins / (wins + losses) : 0;
@@ -880,9 +903,9 @@ client.on('interactionCreate', async interaction => {
           const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
           if (aUserPct !== bUserPct) return bUserPct - aUserPct;
 
-          // H2H tiebreaker
-          const aH2H = getH2HWinPct(a.team_id, b.team_id);
-          const bH2H = getH2HWinPct(b.team_id, a.team_id);
+          // H2H tiebreaker (between the two users)
+          const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
+          const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
           if (aH2H !== bH2H) return bH2H - aH2H;
 
           // Fallback: stability
@@ -896,7 +919,8 @@ client.on('interactionCreate', async interaction => {
           const rank = i + 1;
           const record = `${r.wins}-${r.losses}`;
           const userRecord = `${r.user_wins}-${r.user_losses}`;
-          description += `**${rank}.** ${r.team_name} (${record}) | Vs Users: ${userRecord}\n`;
+          const displayName = r.taken_by_name || r.team_name;
+          description += `**${rank}.** ${displayName} (${record}) | Vs Users: ${userRecord}\n`;
         }
 
         if (!description) description = 'No user teams found.';
@@ -908,7 +932,17 @@ client.on('interactionCreate', async interaction => {
           timestamp: new Date()
         };
 
-        return interaction.editReply({ embeds: [embed] });
+        if (isPublic) {
+          const generalChannel = interaction.guild.channels.cache.find(ch => ch.name === 'general');
+          if (generalChannel && generalChannel.isTextBased()) {
+            await generalChannel.send({ embeds: [embed] });
+            return interaction.editReply({ content: 'Rankings posted to #general.' });
+          } else {
+            return interaction.editReply({ content: 'Error: Could not find #general channel.' });
+          }
+        } else {
+          return interaction.editReply({ embeds: [embed] });
+        }
       } catch (err) {
         console.error('ranking command error:', err);
         return interaction.editReply(`Error generating rankings: ${err.message}`);
@@ -923,10 +957,11 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ ephemeral: true, content: "Only the commissioner can view rankings." });
       }
 
-      await interaction.deferReply({ flags: 64 }); // ephemeral
+      const isPublic = interaction.options.getBoolean('public') || false;
+      await interaction.deferReply({ flags: isPublic ? 0 : 64 }); // 64 = ephemeral
 
       try {
-        // Fetch all records (all seasons) and aggregate by team
+        // Fetch all records (all seasons) and aggregate by user
         const { data: allRecords, error: recordsErr } = await supabase.from('records').select('*');
         if (recordsErr) throw recordsErr;
 
@@ -934,32 +969,40 @@ client.on('interactionCreate', async interaction => {
         const { data: results, error: resultsErr } = await supabase.from('results').select('*');
         if (resultsErr) throw resultsErr;
 
-        // Build map of H2H records
+        // Build map of H2H records by user
         const h2hMap = {};
         if (results) {
           for (const r of results) {
-            const key = `${r.user_team_id}_vs_${r.opponent_team_id}`;
-            if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
-            if (r.result === 'W') h2hMap[key].wins++;
-            else h2hMap[key].losses++;
+            if (r.taken_by) {
+              // Try to find opponent's taken_by from records
+              const oppRecord = (allRecords || []).find(rec => rec.team_id === r.opponent_team_id);
+              if (oppRecord && oppRecord.taken_by) {
+                const key = `${r.taken_by}_vs_${oppRecord.taken_by}`;
+                if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
+                if (r.result === 'W') h2hMap[key].wins++;
+                else h2hMap[key].losses++;
+              }
+            }
           }
         }
 
         // Helper to calculate H2H win%
-        const getH2HWinPct = (teamAId, teamBId) => {
-          const key = `${teamAId}_vs_${teamBId}`;
+        const getH2HWinPct = (userAId, userBId) => {
+          const key = `${userAId}_vs_${userBId}`;
           if (!h2hMap[key]) return 0;
           const { wins, losses } = h2hMap[key];
           return (wins + losses) > 0 ? wins / (wins + losses) : 0;
         };
 
-        // Aggregate records by team (sum across all seasons)
-        const teamAggregates = {};
+        // Aggregate records by user (sum across all seasons)
+        const userAggregates = {};
         if (allRecords) {
           for (const r of allRecords) {
-            if (!teamAggregates[r.team_id]) {
-              teamAggregates[r.team_id] = {
-                team_id: r.team_id,
+            const userId = r.taken_by;
+            if (!userAggregates[userId]) {
+              userAggregates[userId] = {
+                taken_by: userId,
+                taken_by_name: r.taken_by_name || 'Unknown',
                 team_name: r.team_name,
                 wins: 0,
                 losses: 0,
@@ -967,15 +1010,15 @@ client.on('interactionCreate', async interaction => {
                 user_losses: 0
               };
             }
-            teamAggregates[r.team_id].wins += r.wins;
-            teamAggregates[r.team_id].losses += r.losses;
-            teamAggregates[r.team_id].user_wins += r.user_wins;
-            teamAggregates[r.team_id].user_losses += r.user_losses;
+            userAggregates[userId].wins += r.wins;
+            userAggregates[userId].losses += r.losses;
+            userAggregates[userId].user_wins += r.user_wins;
+            userAggregates[userId].user_losses += r.user_losses;
           }
         }
 
         // Sort by: overall win%, then user-vs-user win%, then H2H
-        const sorted = Object.values(teamAggregates).sort((a, b) => {
+        const sorted = Object.values(userAggregates).sort((a, b) => {
           const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
           const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
           if (aWinPct !== bWinPct) return bWinPct - aWinPct;
@@ -985,8 +1028,8 @@ client.on('interactionCreate', async interaction => {
           if (aUserPct !== bUserPct) return bUserPct - aUserPct;
 
           // H2H tiebreaker
-          const aH2H = getH2HWinPct(a.team_id, b.team_id);
-          const bH2H = getH2HWinPct(b.team_id, a.team_id);
+          const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
+          const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
           if (aH2H !== bH2H) return bH2H - aH2H;
 
           return 0;
@@ -999,7 +1042,8 @@ client.on('interactionCreate', async interaction => {
           const rank = i + 1;
           const record = `${r.wins}-${r.losses}`;
           const userRecord = `${r.user_wins}-${r.user_losses}`;
-          description += `**${rank}.** ${r.team_name} (${record}) | Vs Users: ${userRecord}\n`;
+          const displayName = r.taken_by_name || r.team_name;
+          description += `**${rank}.** ${displayName} (${record}) | Vs Users: ${userRecord}\n`;
         }
 
         if (!description) description = 'No user teams found.';
@@ -1011,7 +1055,17 @@ client.on('interactionCreate', async interaction => {
           timestamp: new Date()
         };
 
-        return interaction.editReply({ embeds: [embed] });
+        if (isPublic) {
+          const generalChannel = interaction.guild.channels.cache.find(ch => ch.name === 'general');
+          if (generalChannel && generalChannel.isTextBased()) {
+            await generalChannel.send({ embeds: [embed] });
+            return interaction.editReply({ content: 'All-time rankings posted to #general.' });
+          } else {
+            return interaction.editReply({ content: 'Error: Could not find #general channel.' });
+          }
+        } else {
+          return interaction.editReply({ embeds: [embed] });
+        }
       } catch (err) {
         console.error('ranking-all-time command error:', err);
         return interaction.editReply(`Error generating all-time rankings: ${err.message}`);
