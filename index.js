@@ -145,7 +145,23 @@ const commands = [
     .addBooleanOption(opt => opt
       .setName('public')
       .setDescription('Post to #general (default: private)')
-      .setRequired(false))
+      .setRequired(false)),
+
+  new SlashCommandBuilder()
+    .setName('move-coach')
+    .setDescription('Move a coach to a new team (commissioner only)')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addStringOption(opt => opt
+      .setName('coach')
+      .setDescription('Select the coach to move')
+      .setRequired(true)
+      .setAutocomplete(true))
+    .addStringOption(opt => opt
+      .setName('new_team')
+      .setDescription('Select the new team')
+      .setRequired(true)
+      .setAutocomplete(true))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
@@ -410,9 +426,11 @@ async function sendJobOffersToUser(user, count = 5) {
 // ---------------------------------------------------------
 client.on('interactionCreate', async interaction => {
   try {
-    // Autocomplete for opponent using supabase
+    // Autocomplete handling
     if (interaction.isAutocomplete()) {
       const focused = interaction.options.getFocused(true);
+      
+      // Autocomplete for /game-result opponent
       if (focused.name === 'opponent') {
         const search = (focused.value || '').toLowerCase();
         const { data: teamsData, error } = await supabase.from('teams').select('name').limit(200);
@@ -426,6 +444,49 @@ client.on('interactionCreate', async interaction => {
         list.sort((a, b) => a.localeCompare(b));
         try {
           await interaction.respond(list.slice(0, 25).map(n => ({ name: n, value: n })));
+        } catch (e) {
+          console.error('Failed to respond to autocomplete:', e);
+        }
+        return;
+      }
+
+      // Autocomplete for /move-coach coach (list users with teams)
+      if (focused.name === 'coach') {
+        const search = (focused.value || '').toLowerCase();
+        const { data: teamsData, error } = await supabase.from('teams').select('taken_by_name').where('taken_by.is.not', null).limit(200);
+        if (error) {
+          console.error("Autocomplete coach error:", error);
+          try { await interaction.respond([]); } catch (e) { console.error('Failed to respond to autocomplete (empty):', e); }
+          return;
+        }
+        const coachList = (teamsData || []).map(r => r.taken_by_name).filter(n => n && n.toLowerCase().includes(search));
+        // remove duplicates and sort
+        const uniqueCoaches = [...new Set(coachList)];
+        uniqueCoaches.sort((a, b) => a.localeCompare(b));
+        try {
+          await interaction.respond(uniqueCoaches.slice(0, 25).map(n => ({ name: n, value: n })));
+        } catch (e) {
+          console.error('Failed to respond to autocomplete:', e);
+        }
+        return;
+      }
+
+      // Autocomplete for /move-coach new_team (list all teams)
+      if (focused.name === 'new_team') {
+        const search = (focused.value || '').toLowerCase();
+        const { data: teamsData, error } = await supabase.from('teams').select('id, name, taken_by_name').limit(200);
+        if (error) {
+          console.error("Autocomplete new_team error:", error);
+          try { await interaction.respond([]); } catch (e) { console.error('Failed to respond to autocomplete (empty):', e); }
+          return;
+        }
+        const list = (teamsData || []).filter(t => t.name.toLowerCase().includes(search)).map(t => {
+          const status = t.taken_by_name ? ` (${t.taken_by_name})` : ' (available)';
+          return { name: `${t.name}${status}`, value: t.id };
+        });
+        list.sort((a, b) => a.name.localeCompare(b.name));
+        try {
+          await interaction.respond(list.slice(0, 25));
         } catch (e) {
           console.error('Failed to respond to autocomplete:', e);
         }
@@ -1069,6 +1130,84 @@ client.on('interactionCreate', async interaction => {
       } catch (err) {
         console.error('ranking-all-time command error:', err);
         return interaction.editReply(`Error generating all-time rankings: ${err.message}`);
+      }
+    }
+
+    // ---------------------------
+    // /move-coach
+    // ---------------------------
+    if (name === 'move-coach') {
+      if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.reply({ ephemeral: true, content: "Only the commissioner can move coaches." });
+      }
+
+      await interaction.deferReply({ flags: 64 }); // ephemeral
+
+      try {
+        const coachName = interaction.options.getString('coach');
+        const newTeamId = interaction.options.getString('new_team');
+
+        // Find the coach's current team by taken_by_name
+        const { data: coachTeams, error: coachErr } = await supabase
+          .from('teams')
+          .select('*')
+          .eq('taken_by_name', coachName);
+        if (coachErr) throw coachErr;
+
+        if (!coachTeams || coachTeams.length === 0) {
+          return interaction.editReply(`Coach "${coachName}" not found.`);
+        }
+
+        const oldTeam = coachTeams[0];
+        const coachUserId = oldTeam.taken_by;
+
+        // Fetch new team details
+        const { data: newTeam, error: newTeamErr } = await supabase
+          .from('teams')
+          .select('*')
+          .eq('id', newTeamId)
+          .maybeSingle();
+        if (newTeamErr) throw newTeamErr;
+
+        if (!newTeam) {
+          return interaction.editReply(`New team not found.`);
+        }
+
+        // Update old team: remove coach
+        const { error: oldUpdateErr } = await supabase
+          .from('teams')
+          .update({ taken_by: null, taken_by_name: null })
+          .eq('id', oldTeam.id);
+        if (oldUpdateErr) throw oldUpdateErr;
+
+        // Update new team: add coach
+        const { error: newUpdateErr } = await supabase
+          .from('teams')
+          .update({ taken_by: coachUserId, taken_by_name: coachName })
+          .eq('id', newTeamId);
+        if (newUpdateErr) throw newUpdateErr;
+
+        // Find and rename the team channel
+        const guild = interaction.guild;
+        if (guild) {
+          const teamChannelCategory = guild.channels.cache.find(ch => ch.name === 'Team Channels' && ch.isCategory());
+          if (teamChannelCategory) {
+            // Look for a channel with the old team name
+            const oldChannel = guild.channels.cache.find(
+              ch => ch.parent?.id === teamChannelCategory.id && ch.name.toLowerCase() === oldTeam.name.toLowerCase()
+            );
+            if (oldChannel) {
+              await oldChannel.setName(newTeam.name);
+            }
+          }
+        }
+
+        return interaction.editReply(
+          `✅ Moved **${coachName}** from **${oldTeam.name}** to **${newTeam.name}**. Channel renamed.`
+        );
+      } catch (err) {
+        console.error('move-coach command error:', err);
+        return interaction.editReply(`Error moving coach: ${err.message}`);
       }
     }
 
