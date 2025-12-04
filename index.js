@@ -12,6 +12,37 @@ http.createServer((req, res) => {
 });
 
 // ---------------------------------------------------------
+// SELF-PINGER (optional: keeps service warm on idle platforms)
+// ---------------------------------------------------------
+const httpGet = (url) => {
+  return new Promise((resolve) => {
+    try {
+      const req = require('http').get(url, (res) => {
+        res.on('data', () => {});
+        res.on('end', () => resolve({ status: res.statusCode }));
+      });
+      req.on('error', (e) => resolve({ error: e.message }));
+      req.setTimeout(5000, () => { req.abort(); resolve({ error: 'timeout' }); });
+    } catch (e) {
+      resolve({ error: e.message });
+    }
+  });
+};
+
+if (process.env.SELF_PING_URL) {
+  setInterval(async () => {
+    try {
+      const r = await httpGet(process.env.SELF_PING_URL);
+      if (r.error) console.debug('self-ping failed:', r.error);
+      else console.debug('self-ping status:', r.status);
+    } catch (e) {
+      console.debug('self-ping exception:', e);
+    }
+  }, 4 * 60 * 1000); // every 4 minutes
+  console.log('Self-pinger enabled for', process.env.SELF_PING_URL);
+}
+
+// ---------------------------------------------------------
 // DISCORD + SUPABASE
 // ---------------------------------------------------------
 
@@ -1207,15 +1238,3 @@ process.on('SIGINT', () => _shutdown('SIGINT'));
 client.login(process.env.DISCORD_TOKEN).catch(e => {
   console.error("Failed to login:", e);
 });
-
-
-// SELF-PINGER TO PREVENT RENDER FROM SLEEPING
-const https = require('https');
-
-setInterval(() => {
-  https.get('https://headset-dynasty-bot.onrender.com/', (res) => {
-    // optional: console.log('Self-ping', res.statusCode);
-  }).on('error', (e) => {
-    // optional: console.error('Self-ping error:', e);
-  });
-}, 4 * 60 * 1000); // every 4 minutes (safe for Render free tier)
