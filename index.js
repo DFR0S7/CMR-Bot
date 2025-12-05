@@ -90,7 +90,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('resetteam')
     .setDescription('Reset a user\'s team')
-    .addUserOption(o => o.setName('coach').setDescription('The coach to reset').setRequired(true))
+    .addStringOption(o => o.setName('userid').setDescription('The Discord user ID of the coach to reset').setRequired(true))
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
@@ -531,20 +531,26 @@ client.on('interactionCreate', async interaction => {
       // Defer reply immediately since this operation takes time
       await interaction.deferReply({ ephemeral: true });
 
-      const coach = interaction.options.getUser('coach');
+      const userId = interaction.options.getString('userid');
+      
+      // Validate that it looks like a Discord ID (numeric string)
+      if (!/^\d+$/.test(userId)) {
+        return interaction.editReply('Invalid user ID. Please provide a valid Discord user ID (numbers only).');
+      }
+
       // find team by taken_by
-      const { data: teamData, error } = await supabase.from('teams').select('*').eq('taken_by', coach.id).limit(1).maybeSingle();
+      const { data: teamData, error } = await supabase.from('teams').select('*').eq('taken_by', userId).limit(1).maybeSingle();
       if (error) {
         console.error("resetteam query error:", error);
         return interaction.editReply(`Error: ${error.message}`);
       }
       if (!teamData) {
-        return interaction.editReply(`${coach.username} has no team.`);
+        return interaction.editReply(`User ID ${userId} has no team.`);
       }
 
       // Remove from teams table
       await supabase.from('teams').update({ taken_by: null, taken_by_name: null }).eq('id', teamData.id);
-      jobOfferUsed.delete(coach.id);
+      jobOfferUsed.delete(userId);
 
       // Delete team-specific channel
       const guild = client.guilds.cache.first();
@@ -562,16 +568,17 @@ client.on('interactionCreate', async interaction => {
           console.error(`Failed to delete channel for ${teamData.name}:`, err);
         }
 
-        // Remove Head Coach role
+        // Remove Head Coach role (only if user is still in server)
         try {
-          const member = await guild.members.fetch(coach.id);
+          const member = await guild.members.fetch(userId);
           const headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
           if (headCoachRole && member) {
             await member.roles.remove(headCoachRole, "Team reset - removing coach role");
-            console.log(`Removed Head Coach role from ${coach.username}`);
+            console.log(`Removed Head Coach role from user ${userId}`);
           }
         } catch (err) {
-          console.error(`Failed to remove Head Coach role from ${coach.username}:`, err);
+          // User may have left the server, that's okay
+          console.log(`Could not remove Head Coach role from ${userId} (user may have left server):`, err.message);
         }
       }
 

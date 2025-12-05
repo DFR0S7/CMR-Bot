@@ -10,11 +10,11 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("resetteam")
-    .setDescription("Reset a user’s team and free it back up")
-    .addUserOption(option =>
+    .setDescription("Reset a user's team and free it back up")
+    .addStringOption(option =>
       option
-        .setName("coach")
-        .setDescription("The coach to reset")
+        .setName("userid")
+        .setDescription("The Discord user ID of the coach to reset")
         .setRequired(true)
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
