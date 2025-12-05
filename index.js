@@ -984,7 +984,7 @@ client.on('interactionCreate', async interaction => {
           const teamName = r.team_name;
           
           // Format: "1. displayName teamName record (vsUserRecord)"
-          description += `${rank.toString().padEnd(3, ' ')} ${displayName.padEnd(20, ' ')} ${teamName.padEnd(30, ' ')} ${record.padEnd(6, ' ')} (${userRecord})\n`;
+          description += `${rank.toString().padEnd(3)} ${displayName.padEnd(18)} ${teamName.padEnd(22)} ${record.padEnd(5)} (${userRecord})\n`;
         }
 
         if (!description) description = 'No user teams found.';
