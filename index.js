@@ -981,14 +981,18 @@ client.on('interactionCreate', async interaction => {
           const record = `${r.wins}-${r.losses}`;
           const userRecord = `${r.user_wins}-${r.user_losses}`;
           const displayName = r.taken_by_name || r.team_name;
-          description += `**${rank}.** ${displayName} (${record}) | Vs Users: ${userRecord}\n`;
+          const teamName = r.team_name;
+          
+          // Format: "1. displayName teamName record (vsUserRecord)"
+          description += `${rank.toString().padEnd(3, ' ')} ${displayName.padEnd(20, ' ')} ${teamName.padEnd(25, ' ')} ${record.padEnd(3, ' ')} (${userRecord})\n`;
         }
 
         if (!description) description = 'No user teams found.';
+        else description += `\n*Record in parentheses is vs user teams only*`;
 
         const embed = {
           title: `🏆 Headset Dynasty Rankings – Season ${currentSeason}`,
-          description,
+          description: '```\n' + description + '\n```',
           color: 0xffd700,
           timestamp: new Date()
         };
@@ -1103,15 +1107,18 @@ client.on('interactionCreate', async interaction => {
           const rank = i + 1;
           const record = `${r.wins}-${r.losses}`;
           const userRecord = `${r.user_wins}-${r.user_losses}`;
-          const displayName = r.taken_by_name || r.team_name;
-          description += `**${rank}.** ${displayName} (${record}) | Vs Users: ${userRecord}\n`;
+          const displayName = r.taken_by_name || 'Unknown';
+          
+          // Format: "1. displayName record (vsUserRecord)" - no team name for all-time
+          description += `${rank.toString().padEnd(3, ' ')} ${displayName.padEnd(20, ' ')} ${record.padEnd(3, ' ')} (${userRecord})\n`;
         }
 
         if (!description) description = 'No user teams found.';
+        else description += `\n*Record in parentheses is vs user teams only*`;
 
         const embed = {
           title: `👑 Headset Dynasty All-Time Rankings`,
-          description,
+          description: '```\n' + description + '\n```',
           color: 0xffd700,
           timestamp: new Date()
         };
