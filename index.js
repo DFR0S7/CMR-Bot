@@ -675,9 +675,11 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ ephemeral: true, content: `Failed to save result: ${insertResp.error.message}` });
       }
 
+      // Check if opponent is user-controlled (needed for both records update and news-feed post)
+      const isOpponentUserControlled = opponentTeam.taken_by != null;
+
       // Update records table for both users (if applicable)
       try {
-        const isOpponentUserControlled = opponentTeam.taken_by != null;
 
         // Fetch existing record for submitting user
         const { data: existingRecord } = await supabase
