@@ -988,6 +988,14 @@ client.on('interactionCreate', async interaction => {
         const { data: records, error: recordsErr } = await supabase.from('records').select('*').eq('season', currentSeason);
         if (recordsErr) throw recordsErr;
 
+        // Fetch current users (only those with teams)
+        const { data: currentUsers, error: usersErr } = await supabase.from('teams').select('taken_by').not('taken_by', 'is', null);
+        if (usersErr) throw usersErr;
+        const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
+
+        // Filter records to only include current users
+        const filteredRecords = (records || []).filter(r => currentUserIds.has(r.taken_by));
+
         // Fetch all user vs user results for H2H tiebreaking
         const { data: results, error: resultsErr } = await supabase.from('results').select('*').eq('season', currentSeason);
         if (resultsErr) throw resultsErr;
@@ -1018,17 +1026,27 @@ client.on('interactionCreate', async interaction => {
           return (wins + losses) > 0 ? wins / (wins + losses) : 0;
         };
 
-        // Sort by: overall win%, then user-vs-user win%, then H2H win% (vs opponents), then average
-        const sorted = (records || []).sort((a, b) => {
-          const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
-          const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
-          if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+        // Sort by: total wins (unless within 1 win, then win%), then user-vs-user win%, then H2H win%
+        const sorted = filteredRecords.sort((a, b) => {
+          // First: check if wins are within 1 of each other
+          const winDiff = Math.abs(a.wins - b.wins);
+          
+          if (winDiff <= 1) {
+            // Within 1 win: use win percentage as primary
+            const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
+            const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
+            if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+          } else {
+            // More than 1 win difference: use total wins
+            return b.wins - a.wins;
+          }
 
+          // Third: user-vs-user win percentage (descending)
           const aUserPct = (a.user_wins + a.user_losses) > 0 ? a.user_wins / (a.user_wins + a.user_losses) : 0;
           const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
           if (aUserPct !== bUserPct) return bUserPct - aUserPct;
 
-          // H2H tiebreaker (between the two users)
+          // Fourth: H2H tiebreaker (between the two users)
           const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
           const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
           if (aH2H !== bH2H) return bH2H - aH2H;
@@ -1123,11 +1141,19 @@ client.on('interactionCreate', async interaction => {
           return (wins + losses) > 0 ? wins / (wins + losses) : 0;
         };
 
-        // Aggregate records by user (sum across all seasons)
+        // Fetch current users (only those with teams)
+        const { data: currentUsers, error: usersErr } = await supabase.from('teams').select('taken_by').not('taken_by', 'is', null);
+        if (usersErr) throw usersErr;
+        const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
+
+        // Aggregate records by user (sum across all seasons) - only for current users
         const userAggregates = {};
         if (allRecords) {
           for (const r of allRecords) {
             const userId = r.taken_by;
+            // Only include users who currently have a team
+            if (!currentUserIds.has(userId)) continue;
+            
             if (!userAggregates[userId]) {
               userAggregates[userId] = {
                 taken_by: userId,
@@ -1146,17 +1172,27 @@ client.on('interactionCreate', async interaction => {
           }
         }
 
-        // Sort by: overall win%, then user-vs-user win%, then H2H
+        // Sort by: total wins (unless within 1 win, then win%), then user-vs-user win%, then H2H
         const sorted = Object.values(userAggregates).sort((a, b) => {
-          const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
-          const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
-          if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+          // First: check if wins are within 1 of each other
+          const winDiff = Math.abs(a.wins - b.wins);
+          
+          if (winDiff <= 1) {
+            // Within 1 win: use win percentage as primary
+            const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
+            const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
+            if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+          } else {
+            // More than 1 win difference: use total wins
+            return b.wins - a.wins;
+          }
 
+          // Third: user-vs-user win percentage (descending)
           const aUserPct = (a.user_wins + a.user_losses) > 0 ? a.user_wins / (a.user_wins + a.user_losses) : 0;
           const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
           if (aUserPct !== bUserPct) return bUserPct - aUserPct;
 
-          // H2H tiebreaker
+          // Fourth: H2H tiebreaker
           const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
           const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
           if (aH2H !== bH2H) return bH2H - aH2H;
