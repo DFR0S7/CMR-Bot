@@ -1058,7 +1058,7 @@ client.on('interactionCreate', async interaction => {
           return 0;
         });
 
-        // Build embed description (2 lines per team for mobile-friendly display)
+        // Build embed description (3 lines per team for mobile-friendly display)
         let description = '';
         for (let i = 0; i < sorted.length; i++) {
           const r = sorted[i];
@@ -1068,11 +1068,13 @@ client.on('interactionCreate', async interaction => {
           const displayName = r.taken_by_name || r.team_name;
           const teamName = r.team_name;
           
-          // Format (2 lines per entry):
+          // Format (3 lines per entry):
           // 1.  DisplayName
-          //     Team Name - 10-2 (8-1)
+          //     Team Name
+          //     10-2 (8-1)
           description += `${rank.toString().padStart(2, ' ')}.  ${displayName}\n`;
-          description += `    ${teamName} - ${record} (${userRecord})\n\n`;
+          description += `    ${teamName}\n`;
+          description += `    ${record} (${userRecord})\n\n`;
         }
 
         if (!description) description = 'No user teams found.';
@@ -1206,7 +1208,7 @@ client.on('interactionCreate', async interaction => {
           return 0;
         });
 
-        // Build embed (2 lines per user for mobile-friendly display)
+        // Build embed (3 lines per user for mobile-friendly display)
         let description = '';
         for (let i = 0; i < sorted.length; i++) {
           const r = sorted[i];
@@ -1214,11 +1216,14 @@ client.on('interactionCreate', async interaction => {
           const record = `${r.wins}-${r.losses}`;
           const userRecord = `${r.user_wins}-${r.user_losses}`;
           const displayName = r.taken_by_name || 'Unknown';
+          const teamName = r.team_name || 'No Team';
           
-          // Format (2 lines per entry):
+          // Format (3 lines per entry):
           // 1.  DisplayName
+          //     Team Name
           //     50-20 (45-15)
           description += `${rank.toString().padStart(2, ' ')}.  ${displayName}\n`;
+          description += `    ${teamName}\n`;
           description += `    ${record} (${userRecord})\n\n`;
         }
 
