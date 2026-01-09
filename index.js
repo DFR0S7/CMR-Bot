@@ -469,7 +469,7 @@ client.on('interactionCreate', async interaction => {
       // Autocomplete for /move-coach coach (list users with teams)
       if (focused.name === 'coach') {
         const search = (focused.value || '').toLowerCase();
-        const { data: teamsData, error } = await supabase.from('teams').select('taken_by_name').where('taken_by.is.not', null).limit(200);
+        const { data: teamsData, error } = await supabase.from('teams').select('taken_by_name').not('taken_by', 'is', null).limit(200);
         if (error) {
           console.error("Autocomplete coach error:", error);
           try { await interaction.respond([]); } catch (e) { console.error('Failed to respond to autocomplete (empty):', e); }
