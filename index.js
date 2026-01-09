@@ -596,7 +596,12 @@ client.on('interactionCreate', async interaction => {
     // /listteams
     // ---------------------------
     if (name === 'listteams') {
-      await interaction.deferReply({ ephemeral: true });
+      try {
+        await interaction.deferReply({ ephemeral: true });
+      } catch (err) {
+        console.error("Failed to defer /listteams reply (interaction may have expired):", err);
+        return; // Can't respond to an expired interaction
+      }
 
       const success = await runListTeamsDisplay();
       if (!success) {
