@@ -333,15 +333,17 @@ async function runListTeamsDisplay() {
 
     let text = "";
     for (const [conf, tList] of Object.entries(confMap)) {
-      // only show teams with stars <= 2.0
-      const low = tList.filter(t => t.stars !== null && parseFloat(t.stars) <= 2.0);
-      if (low.length === 0) continue;
+      // Show teams with stars <= 2.0 OR any team taken by a user (regardless of star rating)
+      const filtered = tList.filter(t => 
+        (t.stars !== null && parseFloat(t.stars) <= 2.0) || t.taken_by
+      );
+      if (filtered.length === 0) continue;
 
       // Sort teams alphabetically within the conference
-      low.sort((a, b) => a.name.localeCompare(b.name));
+      filtered.sort((a, b) => a.name.localeCompare(b.name));
 
       text += `\n__**${conf}**__\n`;
-      for (const t of low) {
+      for (const t of filtered) {
         if (t.taken_by) {
           // mention the owner so it's clickable
           text += `🏈 **${t.name}** — <@${t.taken_by}> (${t.taken_by_name || 'Coach'})\n`;
@@ -351,10 +353,10 @@ async function runListTeamsDisplay() {
       }
     }
 
-    if (!text) text = "No 2★ or below teams available.";
+    if (!text) text = "No teams available.";
 
     const embed = {
-      title: "2★ and Below Teams",
+      title: "2★ and Below Teams (+ All User Teams)",
       description: text,
       color: 0x2b2d31,
       timestamp: new Date()
