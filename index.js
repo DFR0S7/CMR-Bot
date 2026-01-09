@@ -564,7 +564,12 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'resetteam') {
       // Defer reply immediately since this operation takes time
-      await interaction.deferReply({ ephemeral: true });
+      try {
+        await interaction.deferReply({ ephemeral: true });
+      } catch (err) {
+        console.error("Failed to defer /resetteam reply (interaction may have expired):", err);
+        return; // Can't respond to an expired interaction
+      }
 
       const userId = interaction.options.getString('userid');
       
@@ -1030,7 +1035,12 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'advance') {
       // Defer reply immediately to avoid interaction timeout
-      await interaction.deferReply({ ephemeral: true });
+      try {
+        await interaction.deferReply({ ephemeral: true });
+      } catch (err) {
+        console.error("Failed to defer /advance reply (interaction may have expired):", err);
+        return;
+      }
 
       // commissioner check
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -1194,7 +1204,12 @@ client.on('interactionCreate', async interaction => {
       }
 
       const isPublic = interaction.options.getBoolean('public') || false;
-      await interaction.deferReply({ flags: isPublic ? 0 : 64 }); // 0 = public, 64 = ephemeral
+      try {
+        await interaction.deferReply({ flags: isPublic ? 0 : 64 }); // 0 = public, 64 = ephemeral
+      } catch (err) {
+        console.error("Failed to defer /ranking reply (interaction may have expired):", err);
+        return;
+      }
 
       try {
         const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
@@ -1326,7 +1341,12 @@ client.on('interactionCreate', async interaction => {
       }
 
       const isPublic = interaction.options.getBoolean('public') || false;
-      await interaction.deferReply({ flags: isPublic ? 0 : 64 }); // 64 = ephemeral
+      try {
+        await interaction.deferReply({ flags: isPublic ? 0 : 64 }); // 64 = ephemeral
+      } catch (err) {
+        console.error("Failed to defer /ranking-all-time reply (interaction may have expired):", err);
+        return;
+      }
 
       try {
         // Fetch all records (all seasons) and aggregate by user
@@ -1475,7 +1495,12 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply({ ephemeral: true, content: "Only the commissioner can move coaches." });
       }
 
-      await interaction.deferReply({ flags: 64 }); // ephemeral
+      try {
+        await interaction.deferReply({ flags: 64 }); // ephemeral
+      } catch (err) {
+        console.error("Failed to defer /move-coach reply (interaction may have expired):", err);
+        return;
+      }
 
       try {
         const coachName = interaction.options.getString('coach');
