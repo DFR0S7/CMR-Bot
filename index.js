@@ -334,9 +334,11 @@ async function runListTeamsDisplay() {
     let text = "";
     for (const [conf, tList] of Object.entries(confMap)) {
       // Show teams with stars <= 2.0 OR any team taken by a user (regardless of star rating)
-      const filtered = tList.filter(t => 
-        (t.stars !== null && parseFloat(t.stars) <= 2.0) || t.taken_by
-      );
+      const filtered = tList.filter(t => {
+        const hasTakenBy = t.taken_by && t.taken_by !== '' && t.taken_by !== 'null';
+        const isLowStar = t.stars !== null && parseFloat(t.stars) <= 2.0;
+        return isLowStar || hasTakenBy;
+      });
       if (filtered.length === 0) continue;
 
       // Sort teams alphabetically within the conference
