@@ -1062,9 +1062,8 @@ client.on('interactionCreate', async interaction => {
         if (advanceChannel) await advanceChannel.send("We have advanced to the next week").catch(() => {});
       }
 
-      // fetch news_feed posts since last advance (week == currentWeek)
-      // fetch news_feed posts since last advance (week == currentWeek)
-      const newsResp = await supabase.from('news_feed').select('text').eq('week', currentWeek);
+      // fetch news_feed posts since last advance (week == currentWeek, season == currentSeason)
+      const newsResp = await supabase.from('news_feed').select('text').eq('week', currentWeek).eq('season', currentSeason);
       let pressReleaseBullets = [];
       if (newsResp.data && newsResp.data.length > 0) {
         pressReleaseBullets = newsResp.data.map(n => `• ${n.text}`);
