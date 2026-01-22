@@ -346,7 +346,7 @@ async function runListTeamsDisplay() {
 
     let text = "";
     for (const [conf, tList] of Object.entries(confMap)) {
-      // Show teams with stars <= 2.0 OR any team taken by a user (regardless of star rating)
+      // Show teams with stars <= 2.5 OR any team taken by a user (regardless of star rating)
       const filtered = tList.filter(t => {
         const hasTakenBy = t.taken_by && t.taken_by !== '' && t.taken_by !== 'null';
         const isLowStar = t.stars !== null && parseFloat(t.stars) <= 2.5;
@@ -400,7 +400,7 @@ async function sendJobOffersToUser(user, count = 5) {
   const { data: available, error } = await supabase
     .from('teams')
     .select('*')
-    .lte('stars', 2.0)
+    .lte('stars', 2.5)
     .is('taken_by', null);
 
   if (error) throw error;
