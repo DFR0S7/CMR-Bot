@@ -349,7 +349,7 @@ async function runListTeamsDisplay() {
       // Show teams with stars <= 2.5 OR any team taken by a user (regardless of star rating)
       const filtered = tList.filter(t => {
         const hasTakenBy = t.taken_by && t.taken_by !== '' && t.taken_by !== 'null';
-        const isLowStar = t.stars !== null && parseFloat(t.stars) === 2.5;
+        const isLowStar = t.stars !== null && parseFloat(t.stars) == 2.5;
         return isLowStar || hasTakenBy;
       });
       if (filtered.length === 0) continue;
@@ -395,12 +395,12 @@ async function runListTeamsDisplay() {
  * Send job offers DM to user (used by slash and reaction flows)
  * returns the array of offered teams (objects) or throws.
  */
-async function sendJobOffersToUser(user, count = 5) {
+async function sendJobOffersToUser(user, count = 3) {
   // Query Supabase for teams with stars <= 2.0 and not taken (assumes numeric column 'stars' and 'taken_by' col)
   const { data: available, error } = await supabase
     .from('teams')
     .select('*')
-    .lte('stars', 2.5)
+    .eq('stars', 2.5)
     .is('taken_by', null);
 
   if (error) throw error;
