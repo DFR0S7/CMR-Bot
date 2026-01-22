@@ -396,7 +396,7 @@ async function runListTeamsDisplay() {
  * returns the array of offered teams (objects) or throws.
  */
 async function sendJobOffersToUser(user, count = 3) {
-  // Query Supabase for teams with stars <= 2.0 and not taken (assumes numeric column 'stars' and 'taken_by' col)
+  // Query Supabase for teams with stars = 2.5 and not taken (assumes numeric column 'stars' and 'taken_by' col)
   const { data: available, error } = await supabase
     .from('teams')
     .select('*')
@@ -1644,7 +1644,7 @@ client.on('guildMemberRemove', async (member) => {
 // ---------------------------------------------------------
 // REACTION HANDLER (for rules reaction -> trigger job offers)
 // ---------------------------------------------------------
-// Behavior: when a user reacts with ✅ in the "rules" channel, send them job offers
+// Behavior: when a user reacts with 🫡 in the "rules" channel, send them job offers
 // Adjust channel name or message id if you prefer a different trigger
 client.on('messageReactionAdd', async (reaction, user) => {
   try {
@@ -1653,14 +1653,14 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
 
-    // only watch for ✅
-    if (reaction.emoji.name !== '✅') return;
+    // only watch for 🫡
+    if (reaction.emoji.name !== '🫡') return;
 
     // optionally restrict to a specific message ID or channel name
     // if you want to restrict to the rules channel, check:
     const channel = reaction.message.channel;
     // CHANGE 'rules' to the exact channel name you use for the rules message
-    if (!channel || channel.name !== 'rules') return;
+    if (!channel || channel.name !== 'front-desk') return;
 
     // soft-lock
     if (jobOfferUsed.has(user.id)) {
