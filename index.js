@@ -1382,10 +1382,18 @@ client.on('interactionCreate', async interaction => {
           return (wins + losses) > 0 ? wins / (wins + losses) : 0;
         };
 
-        // Fetch current users (only those with teams)
-        const { data: currentUsers, error: usersErr } = await supabase.from('teams').select('taken_by').not('taken_by', 'is', null);
+        // Fetch current users (only those with teams) and their current team names
+        const { data: currentUsers, error: usersErr } = await supabase.from('teams').select('taken_by, team_name').not('taken_by', 'is', null);
         if (usersErr) throw usersErr;
         const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
+        
+        // Create a map of userId -> current team name
+        const userTeamMap = {};
+        if (currentUsers) {
+          for (const u of currentUsers) {
+            userTeamMap[u.taken_by] = u.team_name;
+          }
+        }
 
         // Aggregate records by user (sum across all seasons) - only for current users
         const userAggregates = {};
@@ -1399,7 +1407,7 @@ client.on('interactionCreate', async interaction => {
               userAggregates[userId] = {
                 taken_by: userId,
                 taken_by_name: r.taken_by_name || 'Unknown',
-                team_name: r.team_name,
+                team_name: userTeamMap[userId] || 'No Team',
                 wins: 0,
                 losses: 0,
                 user_wins: 0,
