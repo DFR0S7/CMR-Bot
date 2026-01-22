@@ -311,7 +311,7 @@ function buildOffersGroupedByConference(offers) {
 }
 
 /**
- * Run the listteams display logic (posts to member-list channel)
+ * Run the listteams display logic (posts to team-lists channel)
  * Called both by /listteams command and by team claim/reset flows
  */
 async function runListTeamsDisplay() {
@@ -330,7 +330,7 @@ async function runListTeamsDisplay() {
     const guild = client.guilds.cache.first();
     if (!guild) return false;
 
-    const channel = guild.channels.cache.find(c => c.name === 'member-list' && c.isTextBased());
+    const channel = guild.channels.cache.find(c => c.name === 'team-lists' && c.isTextBased());
     if (!channel) return false;
 
     // delete old bot messages FIRST
@@ -371,7 +371,7 @@ async function runListTeamsDisplay() {
     if (!text) text = "No teams available.";
 
     const embed = {
-      title: "2★ and Below Teams (+ All User Teams)",
+      title: "2.5★ and Below Teams (+ All User Teams)",
       description: text,
       color: 0x2b2d31,
       timestamp: new Date()
@@ -645,7 +645,7 @@ client.on('interactionCreate', async interaction => {
         return interaction.editReply("Error posting team list.");
       }
 
-      return interaction.editReply("Team list posted to #member-list.");
+      return interaction.editReply("Team list posted to #team-lists.");
     }
 
     // ---------------------------
