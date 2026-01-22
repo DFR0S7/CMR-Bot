@@ -349,7 +349,7 @@ async function runListTeamsDisplay() {
       // Show teams with stars <= 2.5 OR any team taken by a user (regardless of star rating)
       const filtered = tList.filter(t => {
         const hasTakenBy = t.taken_by && t.taken_by !== '' && t.taken_by !== 'null';
-        const isLowStar = t.stars !== null && parseFloat(t.stars) <= 2.5;
+        const isLowStar = t.stars !== null && parseFloat(t.stars) === 2.5;
         return isLowStar || hasTakenBy;
       });
       if (filtered.length === 0) continue;
@@ -371,7 +371,7 @@ async function runListTeamsDisplay() {
     if (!text) text = "No teams available.";
 
     const embed = {
-      title: "2.5★ and Below Teams (+ All User Teams)",
+      title: "2.5★ Teams (+ All User Teams)",
       description: text,
       color: 0x2b2d31,
       timestamp: new Date()
