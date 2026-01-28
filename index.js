@@ -1789,7 +1789,7 @@ client.on('messageCreate', async msg => {
     //GatewayIntentBits.GuildMessages,
     // GatewayIntentBits.MessageContent,  // if needed — enable in portal
     // etc.
-  ],
+  //],
 });
 
 // Global error handlers and graceful shutdown
