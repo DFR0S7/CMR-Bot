@@ -1867,3 +1867,23 @@ client.on('reconnecting', () => {
 });
 
 client.on('error', (err) => console.error('Discord error:', err));
+client.on('ready', () => {
+  console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
+  // ... your existing ready code
+});
+
+client.on('disconnect', (closeEvent) => {
+  console.error('Gateway disconnected:', closeEvent?.code, closeEvent?.reason || 'No reason');
+});
+
+client.on('reconnecting', () => {
+  console.log('Gateway reconnecting...');
+});
+
+client.on('error', (err) => {
+  console.error('Discord client error:', err);
+});
+
+client.on('warn', (info) => {
+  console.warn('Discord warning:', info);
+});
