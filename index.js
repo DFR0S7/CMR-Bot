@@ -125,6 +125,24 @@ client.login(process.env.DISCORD_TOKEN).catch(err => {
   console.error('Login failed after token update:', err);
   process.exit(1); // force restart if login bombs
 });
+console.log('[PRE-LOGIN] Token length:', process.env.DISCORD_TOKEN?.length || 'MISSING');
+
+client.login(process.env.DISCORD_TOKEN)
+  .then(() => {
+    console.log('[LOGIN SUCCESS] Gateway login promise resolved');
+  })
+  .catch(err => {
+    console.error('[LOGIN ERROR]', err);
+    process.exit(1);
+  });
+
+// Optional: force timeout if ready never fires (after 60 seconds)
+setTimeout(() => {
+  if (!client.isReady()) {
+    console.error('[TIMEOUT] No ready event after 60s - gateway likely hung');
+    process.exit(1);
+  }
+}, 60000);
 const jobOfferUsed = new Set(); // soft-lock so users don't spam requests
 if (!globalThis.jobOfferUsedGlobal) globalThis.jobOfferUsedGlobal = jobOfferUsed; // aid debugging across reloads
 
