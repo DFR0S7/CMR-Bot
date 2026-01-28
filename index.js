@@ -1790,7 +1790,7 @@ client.on('messageCreate', async msg => {
     // GatewayIntentBits.MessageContent,  // if needed — enable in portal
     // etc.
   //],
-});
+//});
 
 // Global error handlers and graceful shutdown
 process.on('unhandledRejection', (reason, promise) => {
