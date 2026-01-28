@@ -58,7 +58,38 @@ const {
 } = require('discord.js');
 
 const { createClient } = require('@supabase/supabase-js');
+client.on('debug', (info) => {
+  console.log('[DEBUG]', info);  // This logs EVERY gateway step — very noisy but crucial
+});
 
+client.on('error', (err) => {
+  console.error('[CLIENT ERROR]', err);
+});
+
+client.on('warn', (warn) => {
+  console.warn('[WARN]', warn);
+});
+
+client.once('ready', () => {
+  console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
+  // your existing ready code
+});
+
+client.on('disconnect', (closeEvent) => {
+  console.error('[DISCONNECT] Code:', closeEvent?.code, 'Reason:', closeEvent?.reason || 'Unknown');
+});
+
+client.on('reconnecting', () => {
+  console.log('[RECONNECTING] Gateway attempting reconnect...');
+});
+
+// Wrap login
+client.login(process.env.DISCORD_TOKEN)
+  .then(() => console.log('[LOGIN] Promise resolved - waiting for ready...'))
+  .catch(err => {
+    console.error('[LOGIN FAIL]', err);
+    process.exit(1);  // Crash to force restart if login bombs
+  });
 // Create Supabase client (make sure RENDER env vars are set)
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
