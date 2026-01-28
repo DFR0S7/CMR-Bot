@@ -1782,11 +1782,11 @@ client.on('messageCreate', async msg => {
 // const { Client, GatewayIntentBits } = require('discord.js');
 
 // Create client FIRST
-const client = new Client({
-  intents: [
+//const client = new Client({
+  //intents: [
     // Add your actual intents here, e.g.:
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
+    //GatewayIntentBits.Guilds,
+    //GatewayIntentBits.GuildMessages,
     // GatewayIntentBits.MessageContent,  // if needed — enable in portal
     // etc.
   ],
