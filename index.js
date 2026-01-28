@@ -1857,3 +1857,13 @@ client.login(TOKEN)
 
 // Your other code (commands, HTTP server for health checks, etc.) goes here
 // e.g. the "Health server running on port 10000" part
+
+client.on('disconnect', (closeEvent) => {
+  console.error('Discord disconnected:', closeEvent?.code, closeEvent?.reason);
+});
+
+client.on('reconnecting', () => {
+  console.log('Discord reconnecting...');
+});
+
+client.on('error', (err) => console.error('Discord error:', err));
