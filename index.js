@@ -1779,7 +1779,7 @@ client.on('messageCreate', async msg => {
 // START BOT
 // ---------------------------------------------------------
 
-const { Client, GatewayIntentBits } = require('discord.js');
+// const { Client, GatewayIntentBits } = require('discord.js');
 
 // Create client FIRST
 const client = new Client({
