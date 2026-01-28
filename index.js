@@ -73,7 +73,27 @@ const client = new Client({
   ],
   partials: [ Partials.Message, Partials.Channel, Partials.Reaction ]
 });
+client.once('ready', () => {
+  console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
+  // your existing ready code
+});
 
+client.on('disconnect', (closeEvent) => {
+  console.error('Gateway disconnected - Code:', closeEvent?.code, 'Reason:', closeEvent?.reason || 'Unknown');
+});
+
+client.on('reconnecting', () => {
+  console.log('Gateway attempting reconnect...');
+});
+
+client.on('error', (err) => {
+  console.error('Discord client error:', err.message || err);
+});
+
+client.login(process.env.DISCORD_TOKEN).catch(err => {
+  console.error('Login failed after token update:', err);
+  process.exit(1); // force restart if login bombs
+});
 const jobOfferUsed = new Set(); // soft-lock so users don't spam requests
 if (!globalThis.jobOfferUsedGlobal) globalThis.jobOfferUsedGlobal = jobOfferUsed; // aid debugging across reloads
 
