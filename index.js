@@ -1778,6 +1778,20 @@ client.on('messageCreate', async msg => {
 // ---------------------------------------------------------
 // START BOT
 // ---------------------------------------------------------
+
+const { Client, GatewayIntentBits } = require('discord.js');
+
+// Create client FIRST
+const client = new Client({
+  intents: [
+    // Add your actual intents here, e.g.:
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    // GatewayIntentBits.MessageContent,  // if needed — enable in portal
+    // etc.
+  ],
+});
+
 // Global error handlers and graceful shutdown
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -1786,11 +1800,10 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', async (err) => {
   console.error('Uncaught Exception:', err);
   try {
-    if (client && client.destroy) await client.destroy();
+    if (client?.destroy) await client.destroy();
   } catch (e) {
     console.error('Error during client.destroy() after uncaughtException:', e);
   }
-  // Exit with failure - let the hosting platform restart the process
   process.exit(1);
 });
 
@@ -1798,20 +1811,49 @@ client.on('error', (err) => console.error('Discord client error:', err));
 client.on('warn', (info) => console.warn('Discord client warning:', info));
 client.on('shardError', (error) => console.error('Discord client shardError:', error));
 
+client.on('ready', () => {
+  console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
+});
+
+client.on('disconnect', (closeEvent) => {
+  console.log('Disconnected from Discord:', closeEvent?.code, closeEvent?.reason);
+});
+
+client.on('reconnecting', () => {
+  console.log('Attempting to reconnect to Discord...');
+});
+
+// Graceful shutdown
 const _shutdown = async (signal) => {
   console.log(`Received ${signal} - shutting down gracefully...`);
   try {
-    if (client && client.destroy) await client.destroy();
+    if (client?.destroy) await client.destroy();
   } catch (e) {
     console.error('Error during client.destroy() in shutdown:', e);
   }
-  // Give logs a moment to flush
   setTimeout(() => process.exit(0), 500);
 };
 
 process.on('SIGTERM', () => _shutdown('SIGTERM'));
 process.on('SIGINT', () => _shutdown('SIGINT'));
 
-client.login(process.env.DISCORD_TOKEN).catch(e => {
-  console.error("Failed to login:", e);
-});
+// ---------------------------------------------------------
+// LOGIN — ONLY ONCE, at the END, after all events are attached
+// ---------------------------------------------------------
+const TOKEN = process.env.DISCORD_TOKEN || process.env.TOKEN; // support both names during transition
+
+if (!TOKEN) {
+  console.error('No DISCORD_TOKEN or TOKEN found in environment variables!');
+  process.exit(1);
+}
+
+client.login(TOKEN)
+  .then(() => console.log('Login promise resolved successfully'))
+  .catch(err => {
+    console.error('Login failed:', err);
+    // Optional: exit on fatal login error so Render restarts fresh
+    process.exit(1);
+  });
+
+// Your other code (commands, HTTP server for health checks, etc.) goes here
+// e.g. the "Health server running on port 10000" part
