@@ -58,6 +58,20 @@ const {
 } = require('discord.js');
 
 const { createClient } = require('@supabase/supabase-js');
+// Create Supabase client (make sure RENDER env vars are set)
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.GuildMessageReactions
+  ],
+  partials: [ Partials.Message, Partials.Channel, Partials.Reaction ]
+});
 client.on('debug', (info) => {
   console.log('[DEBUG]', info);  // This logs EVERY gateway step — very noisy but crucial
 });
@@ -90,20 +104,6 @@ client.login(process.env.DISCORD_TOKEN)
     console.error('[LOGIN FAIL]', err);
     process.exit(1);  // Crash to force restart if login bombs
   });
-// Create Supabase client (make sure RENDER env vars are set)
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.DirectMessages,
-    GatewayIntentBits.GuildMessageReactions
-  ],
-  partials: [ Partials.Message, Partials.Channel, Partials.Reaction ]
-});
 client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
   // your existing ready code
