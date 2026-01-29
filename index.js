@@ -1065,7 +1065,7 @@ client.on('interactionCreate', async interaction => {
       // post advance message in advance channel
       const guild = client.guilds.cache.first();
       if (guild) {
-        const advanceChannel = guild.channels.cache.find(c => c.name === 'advance' && c.isTextBased());
+        const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
         if (advanceChannel) await advanceChannel.send("We have advanced to the next week").catch(() => {});
       }
 
@@ -1190,7 +1190,7 @@ client.on('interactionCreate', async interaction => {
       try {
         const guild = client.guilds.cache.first();
         if (guild) {
-          const advanceChannel = guild.channels.cache.find(c => c.name === 'advance' && c.isTextBased());
+          const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
           if (advanceChannel) {
             await advanceChannel.send(`We have advanced to Season ${currentSeason + 1}`).catch(() => {});
           }
