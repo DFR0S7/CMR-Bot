@@ -194,7 +194,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 // ---------------------------------------------------------
 // BOT READY
 // ---------------------------------------------------------
-client.once('clientReady', async () => {
+client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   // Set up role-based permissions after bot is ready
@@ -442,140 +442,11 @@ async function sendJobOffersToUser(user, count = 3) {
 // AUTOCOMPLETE & COMMAND HANDLING
 // ---------------------------------------------------------
 client.on('interactionCreate', async interaction => {
-  // ───────────────────────────────────────────────
-  // IMMEDIATELY defer ALL slash commands (prevents 10062 timeout)
-  // ───────────────────────────────────────────────
-  if (interaction.isChatInputCommand()) {
-    try {
-      await interaction.deferReply(); // public by default (flags: 0)
-      console.log(`[DEFER] Deferred ${interaction.commandName} for ${interaction.user.tag}`);
-    } catch (err) {
-      console.error(`Defer failed for ${interaction.commandName}:`, err);
-      try {
-        await interaction.reply({ content: "Sorry — I took too long. Try again!", flags: 64 });
-      } catch {}
-      return;
-    }
-  }
-
-  // Autocomplete (no defer needed)
-  if (interaction.isAutocomplete()) {
-    const focused = interaction.options.getFocused(true);
-
-    if (focused.name === 'opponent') {
-      const search = (focused.value || '').toLowerCase();
-      const { data: teamsData, error } = await supabase.from('teams').select('name').limit(200);
-      if (error) {
-        console.error("Autocomplete error:", error);
-        return interaction.respond([]);
-      }
-      const list = (teamsData || []).map(r => r.name).filter(n => n.toLowerCase().includes(search));
-      list.sort((a, b) => a.localeCompare(b));
-      return interaction.respond(list.slice(0, 25).map(n => ({ name: n, value: n })));
-    }
-
-    // Add other autocomplete cases here (coach, new_team, home_team, away_team) ...
-    // copy them from your original code if needed
-    return;
-  }
-
-  if (!interaction.isChatInputCommand()) return;
-
-  const name = interaction.commandName;
-
-  // ───────────────────────────────────────────────
-  // /listteams
-  // ───────────────────────────────────────────────
-  if (name === 'listteams') {
-    try {
-      const success = await runListTeamsDisplay();
-      await interaction.editReply(
-        success ? 'Team list posted to #team-lists.' : 'Error posting team list.'
-      );
-    } catch (err) {
-      console.error('listteams error:', err);
-      await interaction.editReply('An error occurred while listing teams.');
-    }
-    return;
-  }
-
-  // ───────────────────────────────────────────────
-  // /advance
-  // ───────────────────────────────────────────────
-  if (name === 'advance') {
-    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.editReply("Only the commissioner can advance the week.");
-    }
-
-    try {
-      const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
-      const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
-
-      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
-      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
-
-      const summaryWeek = currentWeek; // week we're summarizing
-
-      // Fetch press releases
-      const { data: pressData } = await supabase
-        .from('news_feed')
-        .select('text')
-        .eq('week', summaryWeek)
-        .eq('season', currentSeason);
-
-      const pressBullets = pressData?.map(p => `• ${p.text}`) || [];
-
-      // Fetch results
-      const { data: weeklyResults } = await supabase
-        .from('results')
-        .select('*')
-        .eq('season', currentSeason)
-        .eq('week', summaryWeek);
-
-      let resultsText = weeklyResults?.length
-        ? weeklyResults.map(r => `${r.user_team_name} ${r.user_score} - ${r.opponent_team_name} ${r.opponent_score}\nSummary: ${r.summary}`).join('\n\n')
-        : '';
-
-      const embed = {
-        title: `Weekly Summary – Season ${currentSeason}, Week ${summaryWeek}`,
-        color: 0x1e90ff,
-        description: '',
-        timestamp: new Date()
-      };
-
-      if (pressBullets.length) embed.description += '**Press Releases:**\n' + pressBullets.join('\n') + '\n\n';
-      if (resultsText) embed.description += '**Game Results:**\n' + resultsText;
-      if (!embed.description) embed.description = 'No news or results this week.';
-
-      const guild = interaction.guild;
-      if (guild) {
-        const channels = {
-          news: guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased()),
-          general: guild.channels.cache.find(c => c.name === 'general' && c.isTextBased()),
-          advance: guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased())
-        };
-
-        if (channels.advance) {
-          await channels.advance.send(`Advanced to Week ${currentWeek + 1}`).catch(e => console.error('Advance msg failed:', e));
-        }
-        if (channels.news) await channels.news.send({ embeds: [embed] }).catch(e => console.error('news-feed failed:', e));
-        if (channels.general) await channels.general.send({ embeds: [embed] }).catch(e => console.error('general failed:', e));
-      }
-
-      const newWeek = currentWeek + 1;
-      await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
-
-      await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to #news-feed and #general.`);
-    } catch (err) {
-      console.error('advance error:', err);
-      await interaction.editReply(`Error: ${err.message}`);
-    }
-    return;
-  }
-
-  // ... add your other commands here (joboffers, resetteam, etc.) ...
-  // use interaction.editReply() instead of reply() since we already deferred
-});
+  try {
+    // Autocomplete handling
+    if (interaction.isAutocomplete()) {
+      const focused = interaction.options.getFocused(true);
+      
       // Autocomplete for /game-result opponent
       if (focused.name === 'opponent') {
         const search = (focused.value || '').toLowerCase();
@@ -667,7 +538,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'joboffers') {
       if (jobOfferUsed.has(interaction.user.id)) {
-        return interaction.reply({ flags: 64, content: "⛔ You already received a job offer." });
+        return interaction.reply({ ephemeral: true, content: "⛔ You already received a job offer." });
       }
       jobOfferUsed.add(interaction.user.id);
 
@@ -677,15 +548,15 @@ client.on('interactionCreate', async interaction => {
       } catch (err) {
         console.error("Failed to fetch/send offers:", err);
         jobOfferUsed.delete(interaction.user.id);
-        return interaction.reply({ flags: 64, content: `Error fetching offers: ${err.message}` });
+        return interaction.reply({ ephemeral: true, content: `Error fetching offers: ${err.message}` });
       }
 
       if (!offers || offers.length === 0) {
         jobOfferUsed.delete(interaction.user.id);
-        return interaction.reply({ flags: 64, content: "No teams available at the moment." });
+        return interaction.reply({ ephemeral: true, content: "No teams available at the moment." });
       }
 
-      await interaction.reply({ flags: 64, content: "Check your DMs for job offers!" });
+      await interaction.reply({ ephemeral: true, content: "Check your DMs for job offers!" });
       return;
     }
 
@@ -695,7 +566,7 @@ client.on('interactionCreate', async interaction => {
     if (name === 'resetteam') {
       // Defer reply immediately since this operation takes time
       try {
-        await interaction.deferReply({ flags: 64 });
+        await interaction.deferReply({ ephemeral: true });
       } catch (err) {
         console.error("Failed to defer /resetteam reply (interaction may have expired):", err);
         return; // Can't respond to an expired interaction
@@ -762,27 +633,20 @@ client.on('interactionCreate', async interaction => {
     // /listteams
     // ---------------------------
     if (name === 'listteams') {
-  try {
-    // Defer first - no ephemeral key needed if non-secret
-    await interaction.deferReply();  // public by default
-    console.log('[listteams] Deferred reply for user ' + interaction.user.tag);
-  } catch (err) {
-    console.error('Failed to defer /listteams:', err);
-    return;
-  }
+      try {
+        await interaction.deferReply({ ephemeral: true });
+      } catch (err) {
+        console.error("Failed to defer /listteams reply (interaction may have expired):", err);
+        return; // Can't respond to an expired interaction
+      }
 
-  try {
-    const success = await runListTeamsDisplay();
-    if (!success) {
-      await interaction.editReply('Error posting team list.');
-    } else {
-      await interaction.editReply('Team list posted to #team-lists.');
+      const success = await runListTeamsDisplay();
+      if (!success) {
+        return interaction.editReply("Error posting team list.");
+      }
+
+      return interaction.editReply("Team list posted to #team-lists.");
     }
-  } catch (err) {
-    console.error('Error in runListTeamsDisplay:', err);
-    await interaction.editReply('An error occurred while listing teams.');
-  }
-}
 
     // ---------------------------
     // /game-result
@@ -804,9 +668,9 @@ client.on('interactionCreate', async interaction => {
       const { data: userTeam, error: userTeamErr } = await supabase.from('teams').select('*').eq('taken_by', interaction.user.id).maybeSingle();
       if (userTeamErr) {
         console.error("game-result userTeamErr:", userTeamErr);
-        return interaction.reply({ flags: 64, content: `Error: ${userTeamErr.message}` });
+        return interaction.reply({ ephemeral: true, content: `Error: ${userTeamErr.message}` });
       }
-      if (!userTeam) return interaction.reply({ flags: 64, content: "You don't control a team." });
+      if (!userTeam) return interaction.reply({ ephemeral: true, content: "You don't control a team." });
 
       // Check if user already submitted a result this week
       const { data: existingUserResult } = await supabase
@@ -819,7 +683,7 @@ client.on('interactionCreate', async interaction => {
       
       if (existingUserResult) {
         return interaction.reply({ 
-          flags: 64, 
+          ephemeral: true, 
           content: `You already submitted a result this week (vs ${existingUserResult.opponent_team_name}). You can only submit one result per week.`
         });
       }
@@ -832,7 +696,7 @@ client.on('interactionCreate', async interaction => {
         const { data: teamsData, error: teamsErr } = await supabase.from('teams').select('*').limit(1000);
         if (teamsErr) {
           console.error('game-result teams fetch error:', teamsErr);
-          return interaction.reply({ flags: 64, content: `Error fetching teams: ${teamsErr.message}` });
+          return interaction.reply({ ephemeral: true, content: `Error fetching teams: ${teamsErr.message}` });
         }
 
         const needle = (opponentName || '').toLowerCase().trim();
@@ -844,10 +708,10 @@ client.on('interactionCreate', async interaction => {
         }
       } catch (err) {
         console.error('game-result opponent lookup error:', err);
-        return interaction.reply({ flags: 64, content: `Error looking up opponent: ${err.message}` });
+        return interaction.reply({ ephemeral: true, content: `Error looking up opponent: ${err.message}` });
       }
 
-      if (!opponentTeam) return interaction.reply({ flags: 64, content: `Opponent "${opponentName}" not found.` });
+      if (!opponentTeam) return interaction.reply({ ephemeral: true, content: `Opponent "${opponentName}" not found.` });
 
       // Check if opponent (if user-controlled) already submitted this matchup
       const isOpponentUserControlled = opponentTeam.taken_by != null;
@@ -863,7 +727,7 @@ client.on('interactionCreate', async interaction => {
         
         if (existingOpponentResult) {
           return interaction.reply({ 
-            flags: 64, 
+            ephemeral: true, 
             content: `${opponentTeam.name} already submitted this game result. Only the home team (first to submit) can enter the result.`
           });
         }
@@ -890,7 +754,7 @@ client.on('interactionCreate', async interaction => {
 
       if (insertResp.error) {
         console.error("results insert error:", insertResp.error);
-        return interaction.reply({ flags: 64, content: `Failed to save result: ${insertResp.error.message}` });
+        return interaction.reply({ ephemeral: true, content: `Failed to save result: ${insertResp.error.message}` });
       }
 
       // Update records table for both users (if applicable)
@@ -989,7 +853,7 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      return interaction.reply({ flags: 64, content: `Result recorded: ${userTeam.name} vs ${opponentTeam.name}` });
+      return interaction.reply({ ephemeral: true, content: `Result recorded: ${userTeam.name} vs ${opponentTeam.name}` });
     }
 
     // ---------------------------
@@ -998,7 +862,7 @@ client.on('interactionCreate', async interaction => {
     if (name === 'any-game-result') {
       // Commissioner check
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ flags: 64, content: "Only the commissioner can use this command." });
+        return interaction.reply({ ephemeral: true, content: "Only the commissioner can use this command." });
       }
 
       const homeTeamName = interaction.options.getString('home_team');
@@ -1031,11 +895,11 @@ client.on('interactionCreate', async interaction => {
         if (!awayTeam) awayTeam = teamsData.find(t => (t.name || '').toLowerCase().includes(awayNeedle));
       } catch (err) {
         console.error('any-game-result team lookup error:', err);
-        return interaction.reply({ flags: 64, content: `Error looking up teams: ${err.message}` });
+        return interaction.reply({ ephemeral: true, content: `Error looking up teams: ${err.message}` });
       }
 
-      if (!homeTeam) return interaction.reply({ flags: 64, content: `Home team "${homeTeamName}" not found.` });
-      if (!awayTeam) return interaction.reply({ flags: 64, content: `Away team "${awayTeamName}" not found.` });
+      if (!homeTeam) return interaction.reply({ ephemeral: true, content: `Home team "${homeTeamName}" not found.` });
+      if (!awayTeam) return interaction.reply({ ephemeral: true, content: `Away team "${awayTeamName}" not found.` });
 
       const homeResult = homeScore > awayScore ? 'W' : 'L';
       const awayResult = homeScore > awayScore ? 'L' : 'W';
@@ -1061,7 +925,7 @@ client.on('interactionCreate', async interaction => {
 
       if (homeInsert.error) {
         console.error("any-game-result insert error:", homeInsert.error);
-        return interaction.reply({ flags: 64, content: `Failed to save result: ${homeInsert.error.message}` });
+        return interaction.reply({ ephemeral: true, content: `Failed to save result: ${homeInsert.error.message}` });
       }
 
       // Update records for home team (if user-controlled)
@@ -1127,7 +991,7 @@ client.on('interactionCreate', async interaction => {
       }
 
       return interaction.reply({ 
-        flags: 64, 
+        ephemeral: true, 
         content: `Result recorded for Week ${week}: ${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}` 
       });
     }
@@ -1146,7 +1010,7 @@ client.on('interactionCreate', async interaction => {
       const insert = await supabase.from('news_feed').insert([{ season, week, text }]);
       if (insert.error) {
         console.error("press-release insert error:", insert.error);
-        return interaction.reply({ flags: 64, content: `Error: ${insert.error.message}` });
+        return interaction.reply({ ephemeral: true, content: `Error: ${insert.error.message}` });
       }
 
       // also post to news-feed channel as a styled embed
@@ -1164,116 +1028,140 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      return interaction.reply({ flags: 64, content: "Press release posted." });
+      return interaction.reply({ ephemeral: true, content: "Press release posted." });
     }
 
     // ---------------------------
     // /advance (commissioner only)
     // ---------------------------
     if (name === 'advance') {
-  // Defer IMMEDIATELY - gives 15 min to finish
-  try {
-    await interaction.deferReply();  // public by default
-    console.log('[advance] Deferred reply for user ' + interaction.user.tag);
-  } catch (err) {
-    console.error('Failed to defer /advance:', err);
-    return;
-  }
-
-  // Commissioner check
-  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-    return interaction.editReply("Only the commissioner can advance the week.");
-  }
-
-  try {
-    // Get current values
-    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
-    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
-
-    const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
-    const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
-
-    // The week we're summarizing = current week (just completed)
-    const summaryWeek = currentWeek;
-
-    // Fetch press releases for the just-completed week
-    const { data: pressData } = await supabase
-      .from('news_feed')
-      .select('text')
-      .eq('week', summaryWeek)
-      .eq('season', currentSeason);
-
-    const pressBullets = pressData?.map(p => `• ${p.text}`) || [];
-
-    // Fetch game results for the just-completed week
-    const { data: weeklyResults } = await supabase
-      .from('results')
-      .select('*')
-      .eq('season', currentSeason)
-      .eq('week', summaryWeek);
-
-    let resultsText = '';
-    if (weeklyResults?.length > 0) {
-      resultsText = weeklyResults.map(r => {
-        return `${r.user_team_name} ${r.user_score} - ${r.opponent_team_name} ${r.opponent_score}\nSummary: ${r.summary}`;
-      }).join('\n\n');
-    }
-
-    // Build summary embed
-    const embed = {
-      title: `Weekly Summary – Season ${currentSeason}, Week ${summaryWeek}`,
-      color: 0x1e90ff,
-      description: '',
-      timestamp: new Date()
-    };
-
-    if (pressBullets.length > 0) {
-      embed.description += '**Press Releases:**\n' + pressBullets.join('\n') + '\n\n';
-    }
-
-    if (resultsText) {
-      embed.description += '**Game Results:**\n' + resultsText;
-    }
-
-    if (!embed.description) {
-      embed.description = 'No news or results this week.';
-    }
-
-    // Post summary to channels
-    const guild = interaction.guild;
-    if (guild) {
-      const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
-      if (newsChannel) {
-        await newsChannel.send({ embeds: [embed] }).catch(e => console.error('Failed to post to news-feed:', e));
-      } else {
-        console.warn('news-feed channel not found');
+      // Defer reply immediately to avoid interaction timeout
+      try {
+        await interaction.deferReply({ ephemeral: true });
+      } catch (err) {
+        console.error("Failed to defer /advance reply (interaction may have expired):", err);
+        return;
       }
 
-      const generalChannel = guild.channels.cache.find(c => c.name === 'general' && c.isTextBased());
-      if (generalChannel) {
-        await generalChannel.send({ embeds: [embed] }).catch(e => console.error('Failed to post to general:', e));
-      } else {
-        console.warn('general channel not found');
+      // commissioner check
+      if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+        return interaction.editReply("Only the commissioner can advance the week.");
       }
 
-      const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
-      if (advanceChannel) {
-        await advanceChannel.send(`Advanced to Week ${currentWeek + 1}`).catch(e => console.error('Failed to post advance message:', e));
+      // get current week and season (allow week 0)
+      const weekResp = await supabase.from('meta').select('value').eq('key','current_week').maybeSingle();
+      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+      // get current season (needed for weekly summaries and records)
+      const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
+      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+
+      // post advance message in advance channel
+      const guild = client.guilds.cache.first();
+      if (guild) {
+        const advanceChannel = guild.channels.cache.find(c => c.name === 'advance' && c.isTextBased());
+        if (advanceChannel) await advanceChannel.send("We have advanced to the next week").catch(() => {});
       }
+
+      // fetch news_feed posts since last advance (week == currentWeek, season == currentSeason)
+      const newsResp = await supabase.from('news_feed').select('text').eq('week', currentWeek).eq('season', currentSeason);
+      let pressReleaseBullets = [];
+      if (newsResp.data && newsResp.data.length > 0) {
+        pressReleaseBullets = newsResp.data.map(n => `• ${n.text}`);
+      }
+
+      // Also include game results for this week (if results table has week column)
+      let weeklyResultsText = "";
+      try {
+        const allSeasonResp = await supabase.from('results').select('*').eq('season', currentSeason);
+        const weeklyResp = await supabase.from('results').select('*').eq('season', currentSeason).eq('week', currentWeek);
+        const records = {};
+        if (allSeasonResp.data) {
+          for (const r of allSeasonResp.data) {
+            if (!records[r.user_team_id]) records[r.user_team_id] = { name: r.user_team_name, wins: 0, losses: 0 };
+            if (!records[r.opponent_team_id]) records[r.opponent_team_id] = { name: r.opponent_team_name, wins: 0, losses: 0 };
+            if (r.result === 'W') {
+              records[r.user_team_id].wins++;
+              records[r.opponent_team_id].losses++;
+            } else {
+              records[r.user_team_id].losses++;
+              records[r.opponent_team_id].wins++;
+            }
+          }
+        }
+
+        if (weeklyResp.data && weeklyResp.data.length > 0) {
+          // Fetch teams to check if opponent is user-controlled
+          const { data: teamsData } = await supabase.from('teams').select('id,taken_by');
+          const teamsMap = {};
+          if (teamsData) {
+            for (const t of teamsData) {
+              teamsMap[t.id] = t.taken_by;
+            }
+          }
+
+          weeklyResultsText = weeklyResp.data.map(r => {
+            const userRec = records[r.user_team_id] || { wins: 0, losses: 0 };
+            const oppRec = records[r.opponent_team_id] || { wins: 0, losses: 0 };
+            const isOppUserControlled = teamsMap[r.opponent_team_id] != null;
+            
+            let result = `${r.user_team_name} ${r.user_score} - ${r.opponent_team_name} ${r.opponent_score}\n${r.user_team_name} (${userRec.wins}-${userRec.losses})`;
+            
+            // If opponent is user-controlled, add their record too
+            if (isOppUserControlled) {
+              result += `\n${r.opponent_team_name} (${oppRec.wins}-${oppRec.losses})`;
+            }
+            
+            return result;
+          }).join('\n\n');
+        }
+      } catch (err) {
+        console.error('Failed to fetch weekly results for summary:', err);
+      }
+
+      // post weekly summary in news-feed (label week starting at 0)
+      if (guild) {
+        const newsFeedChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
+        if (newsFeedChannel) {
+          const weekLabel = Math.max(0, currentWeek - 1);
+          const title = `Weekly Summary (Season ${currentSeason} — Week ${weekLabel})`;
+          const bodyParts = [];
+
+          // Add press releases as bullet points
+          if (pressReleaseBullets.length > 0) {
+            bodyParts.push(pressReleaseBullets.join('\n'));
+          }
+
+          // Add game results
+          if (weeklyResultsText) {
+            bodyParts.push(`**Game Results:**\n${weeklyResultsText}`);
+          }
+
+          const body = bodyParts.length > 0 ? bodyParts.join('\n\n') : 'No news this week.';
+
+          const embed = {
+            title,
+            description: body,
+            color: 0x1e90ff,
+            timestamp: new Date()
+          };
+
+          // Post to news-feed
+          await newsFeedChannel.send({ embeds: [embed] }).catch(() => {});
+
+          // Also post the weekly summary embed to #general
+          const generalChannel = guild.channels.cache.find(c => c.name === 'general' && c.isTextBased());
+          if (generalChannel) {
+            await generalChannel.send({ embeds: [embed] }).catch(() => {});
+          }
+        }
+      }
+
+      // increment week in meta table
+      const newWeek = currentWeek + 1;
+      await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
+
+      return interaction.editReply(`Advanced week to ${newWeek}.`);
     }
-
-    // Advance the week
-    const newWeek = currentWeek + 1;
-    await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
-
-    // Final reply
-    return interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to #news-feed and #general (if channels exist).`);
-
-  } catch (err) {
-    console.error('advance command error:', err);
-    return interaction.editReply(`Error advancing week: ${err.message}`);
-  }
-}
 
     // ---------------------------
     // /season-advance (commissioner only)
@@ -1281,7 +1169,7 @@ client.on('interactionCreate', async interaction => {
     if (name === 'season-advance') {
       // commissioner check
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ flags: 64, content: "Only the commissioner can advance the season." });
+        return interaction.reply({ ephemeral: true, content: "Only the commissioner can advance the season." });
       }
 
       const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
@@ -1295,7 +1183,7 @@ client.on('interactionCreate', async interaction => {
       try {
         const guild = client.guilds.cache.first();
         if (guild) {
-          const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
+          const advanceChannel = guild.channels.cache.find(c => c.name === 'advance' && c.isTextBased());
           if (advanceChannel) {
             await advanceChannel.send(`We have advanced to Season ${currentSeason + 1}`).catch(() => {});
           }
@@ -1304,7 +1192,7 @@ client.on('interactionCreate', async interaction => {
         console.error('Failed to post season advance message:', err);
       }
 
-      return interaction.reply({ flags: 64, content: `Season advanced to ${currentSeason + 1}, week reset to 0.` });
+      return interaction.reply({ ephemeral: true, content: `Season advanced to ${currentSeason + 1}, week reset to 0.` });
     }
 
     // ---------------------------
@@ -1312,7 +1200,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'ranking') {
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ flags: 64, content: "Only the commissioner can view rankings." });
+        return interaction.reply({ ephemeral: true, content: "Only the commissioner can view rankings." });
       }
 
       const isPublic = interaction.options.getBoolean('public') || false;
@@ -1449,7 +1337,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'ranking-all-time') {
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ flags: 64, content: "Only the commissioner can view rankings." });
+        return interaction.reply({ ephemeral: true, content: "Only the commissioner can view rankings." });
       }
 
       const isPublic = interaction.options.getBoolean('public') || false;
@@ -1612,7 +1500,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'move-coach') {
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ flags: 64, content: "Only the commissioner can move coaches." });
+        return interaction.reply({ ephemeral: true, content: "Only the commissioner can move coaches." });
       }
 
       try {
@@ -1696,7 +1584,7 @@ client.on('interactionCreate', async interaction => {
       if (interaction.replied || interaction.deferred) {
         await interaction.editReply(`Error: ${err.message}`);
       } else {
-        await interaction.reply({ flags: 64, content: `Error: ${err.message}` });
+        await interaction.reply({ ephemeral: true, content: `Error: ${err.message}` });
       }
     } catch (e) { /* ignore reply errors */ }
   }
@@ -1784,7 +1672,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     jobOfferUsed.add(user.id);
 
     try {
-      const offers = await sendJobOffersToUser(user, 3);
+      const offers = await sendJobOffersToUser(user, 5);
       if (!offers || offers.length === 0) {
         jobOfferUsed.delete(user.id);
         try { await user.send("No teams available right now."); } catch (e) {}
