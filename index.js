@@ -1042,133 +1042,109 @@ client.on('interactionCreate', async interaction => {
     // /advance (commissioner only)
     // ---------------------------
     if (name === 'advance') {
-      // Defer reply immediately to avoid interaction timeout
-      try {
-        await interaction.deferReply({ flags: 64 });
-      } catch (err) {
-        console.error("Failed to defer /advance reply (interaction may have expired):", err);
-        return;
-      }
+  // Defer IMMEDIATELY - gives 15 min to finish
+  try {
+    await interaction.deferReply();  // public by default
+    console.log('[advance] Deferred reply for user ' + interaction.user.tag);
+  } catch (err) {
+    console.error('Failed to defer /advance:', err);
+    return;
+  }
 
-      // commissioner check
-      if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.editReply("Only the commissioner can advance the week.");
-      }
+  // Commissioner check
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply("Only the commissioner can advance the week.");
+  }
 
-      // get current week and season (allow week 0)
-      const weekResp = await supabase.from('meta').select('value').eq('key','current_week').maybeSingle();
-      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
-      // get current season (needed for weekly summaries and records)
-      const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
-      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+  try {
+    // Get current values
+    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
 
-      // post advance message in advance channel
-      const guild = client.guilds.cache.first();
-      if (guild) {
-        const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
-        if (advanceChannel) await advanceChannel.send("We have advanced to the next week").catch(() => {});
-      }
+    const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+    const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
 
-      // fetch news_feed posts since last advance (week == currentWeek, season == currentSeason)
-      const newsResp = await supabase.from('news_feed').select('text').eq('week', currentWeek).eq('season', currentSeason);
-      let pressReleaseBullets = [];
-      if (newsResp.data && newsResp.data.length > 0) {
-        pressReleaseBullets = newsResp.data.map(n => `• ${n.text}`);
-      }
+    // The week we're summarizing = current week (just completed)
+    const summaryWeek = currentWeek;
 
-      // Also include game results for this week (if results table has week column)
-      let weeklyResultsText = "";
-      try {
-        const allSeasonResp = await supabase.from('results').select('*').eq('season', currentSeason);
-        const weeklyResp = await supabase.from('results').select('*').eq('season', currentSeason).eq('week', currentWeek);
-        const records = {};
-        if (allSeasonResp.data) {
-          for (const r of allSeasonResp.data) {
-            if (!records[r.user_team_id]) records[r.user_team_id] = { name: r.user_team_name, wins: 0, losses: 0 };
-            if (!records[r.opponent_team_id]) records[r.opponent_team_id] = { name: r.opponent_team_name, wins: 0, losses: 0 };
-            if (r.result === 'W') {
-              records[r.user_team_id].wins++;
-              records[r.opponent_team_id].losses++;
-            } else {
-              records[r.user_team_id].losses++;
-              records[r.opponent_team_id].wins++;
-            }
-          }
-        }
+    // Fetch press releases for the just-completed week
+    const { data: pressData } = await supabase
+      .from('news_feed')
+      .select('text')
+      .eq('week', summaryWeek)
+      .eq('season', currentSeason);
 
-        if (weeklyResp.data && weeklyResp.data.length > 0) {
-          // Fetch teams to check if opponent is user-controlled
-          const { data: teamsData } = await supabase.from('teams').select('id,taken_by');
-          const teamsMap = {};
-          if (teamsData) {
-            for (const t of teamsData) {
-              teamsMap[t.id] = t.taken_by;
-            }
-          }
+    const pressBullets = pressData?.map(p => `• ${p.text}`) || [];
 
-          weeklyResultsText = weeklyResp.data.map(r => {
-            const userRec = records[r.user_team_id] || { wins: 0, losses: 0 };
-            const oppRec = records[r.opponent_team_id] || { wins: 0, losses: 0 };
-            const isOppUserControlled = teamsMap[r.opponent_team_id] != null;
-            
-            let result = `${r.user_team_name} ${r.user_score} - ${r.opponent_team_name} ${r.opponent_score}\n${r.user_team_name} (${userRec.wins}-${userRec.losses})`;
-            
-            // If opponent is user-controlled, add their record too
-            if (isOppUserControlled) {
-              result += `\n${r.opponent_team_name} (${oppRec.wins}-${oppRec.losses})`;
-            }
-            
-            return result;
-          }).join('\n\n');
-        }
-      } catch (err) {
-        console.error('Failed to fetch weekly results for summary:', err);
-      }
+    // Fetch game results for the just-completed week
+    const { data: weeklyResults } = await supabase
+      .from('results')
+      .select('*')
+      .eq('season', currentSeason)
+      .eq('week', summaryWeek);
 
-      // post weekly summary in news-feed (label week starting at 0)
-      if (guild) {
-        const newsFeedChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
-        if (newsFeedChannel) {
-          const weekLabel = Math.max(0, currentWeek - 1);
-          const title = `Weekly Summary (Season ${currentSeason} — Week ${weekLabel})`;
-          const bodyParts = [];
-
-          // Add press releases as bullet points
-          if (pressReleaseBullets.length > 0) {
-            bodyParts.push(pressReleaseBullets.join('\n'));
-          }
-
-          // Add game results
-          if (weeklyResultsText) {
-            bodyParts.push(`**Game Results:**\n${weeklyResultsText}`);
-          }
-
-          const body = bodyParts.length > 0 ? bodyParts.join('\n\n') : 'No news this week.';
-
-          const embed = {
-            title,
-            description: body,
-            color: 0x1e90ff,
-            timestamp: new Date()
-          };
-
-          // Post to news-feed
-          await newsFeedChannel.send({ embeds: [embed] }).catch(() => {});
-
-          // Also post the weekly summary embed to #general
-          const generalChannel = guild.channels.cache.find(c => c.name === 'general' && c.isTextBased());
-          if (generalChannel) {
-            await generalChannel.send({ embeds: [embed] }).catch(() => {});
-          }
-        }
-      }
-
-      // increment week in meta table
-      const newWeek = currentWeek + 1;
-      await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
-
-      return interaction.editReply(`Advanced week to ${newWeek}.`);
+    let resultsText = '';
+    if (weeklyResults?.length > 0) {
+      resultsText = weeklyResults.map(r => {
+        return `${r.user_team_name} ${r.user_score} - ${r.opponent_team_name} ${r.opponent_score}\nSummary: ${r.summary}`;
+      }).join('\n\n');
     }
+
+    // Build summary embed
+    const embed = {
+      title: `Weekly Summary – Season ${currentSeason}, Week ${summaryWeek}`,
+      color: 0x1e90ff,
+      description: '',
+      timestamp: new Date()
+    };
+
+    if (pressBullets.length > 0) {
+      embed.description += '**Press Releases:**\n' + pressBullets.join('\n') + '\n\n';
+    }
+
+    if (resultsText) {
+      embed.description += '**Game Results:**\n' + resultsText;
+    }
+
+    if (!embed.description) {
+      embed.description = 'No news or results this week.';
+    }
+
+    // Post summary to channels
+    const guild = interaction.guild;
+    if (guild) {
+      const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
+      if (newsChannel) {
+        await newsChannel.send({ embeds: [embed] }).catch(e => console.error('Failed to post to news-feed:', e));
+      } else {
+        console.warn('news-feed channel not found');
+      }
+
+      const generalChannel = guild.channels.cache.find(c => c.name === 'general' && c.isTextBased());
+      if (generalChannel) {
+        await generalChannel.send({ embeds: [embed] }).catch(e => console.error('Failed to post to general:', e));
+      } else {
+        console.warn('general channel not found');
+      }
+
+      const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
+      if (advanceChannel) {
+        await advanceChannel.send(`Advanced to Week ${currentWeek + 1}`).catch(e => console.error('Failed to post advance message:', e));
+      }
+    }
+
+    // Advance the week
+    const newWeek = currentWeek + 1;
+    await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
+
+    // Final reply
+    return interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to #news-feed and #general (if channels exist).`);
+
+  } catch (err) {
+    console.error('advance command error:', err);
+    return interaction.editReply(`Error advancing week: ${err.message}`);
+  }
+}
 
     // ---------------------------
     // /season-advance (commissioner only)
