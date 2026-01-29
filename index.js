@@ -194,7 +194,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 // ---------------------------------------------------------
 // BOT READY
 // ---------------------------------------------------------
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   // Set up role-based permissions after bot is ready
@@ -636,7 +636,7 @@ client.on('interactionCreate', async interaction => {
   // Defer AS EARLY AS POSSIBLE - even before try/catch
   try {
     // This MUST be the first thing that touches the interaction
-    await interaction.deferReply({ ephemeral: false });
+    await interaction.deferReply({ // Old await interaction.deferReply({ ephemeral: false }); await interaction.editReply({ content: '...', ephemeral: true });  // New await interaction.deferReply();  // defaults to non-ephemeral await interaction.editReply({ content: '...', flags: 64 });  // 64 = ephemeral false });
     console.log(`[listteams] Deferred reply for user ${interaction.user.tag}`);
   } catch (err) {
     console.error("Failed to defer /listteams:", err);
@@ -644,7 +644,7 @@ client.on('interactionCreate', async interaction => {
     try {
       await interaction.reply({
         content: "Sorry, I took too long to respond — please try again.",
-        ephemeral: true
+        // Old await interaction.deferReply({ ephemeral: false }); await interaction.editReply({ content: '...', ephemeral: true });  // New await interaction.deferReply();  // defaults to non-ephemeral await interaction.editReply({ content: '...', flags: 64 });  // 64 = ephemeral true
       });
     } catch {} // ignore if this also fails
     return;
