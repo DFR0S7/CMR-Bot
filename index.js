@@ -634,24 +634,24 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'listteams') {
   try {
-    await interaction.deferReply({ ephemeral: false });
-    // Log without optional chaining - user should always exist
-    console.log(`[listteams] Deferred reply for user ${interaction.user.tag || 'unknown user'}`);
+    // Defer first - no ephemeral key needed if non-secret
+    await interaction.deferReply();  // public by default
+    console.log('[listteams] Deferred reply for user ' + interaction.user.tag);
   } catch (err) {
-    console.error("Failed to defer /listteams:", err);
+    console.error('Failed to defer /listteams:', err);
     return;
   }
 
   try {
     const success = await runListTeamsDisplay();
     if (!success) {
-      await interaction.editReply("Error posting team list.");
+      await interaction.editReply('Error posting team list.');
     } else {
-      await interaction.editReply("Team list posted to #team-lists.");
+      await interaction.editReply('Team list posted to #team-lists.');
     }
   } catch (err) {
-    console.error("Error in runListTeamsDisplay:", err);
-    await interaction.editReply("An error occurred while listing teams.");
+    console.error('Error in runListTeamsDisplay:', err);
+    await interaction.editReply('An error occurred while listing teams.');
   }
 }
 
