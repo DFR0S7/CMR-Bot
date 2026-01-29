@@ -442,11 +442,140 @@ async function sendJobOffersToUser(user, count = 3) {
 // AUTOCOMPLETE & COMMAND HANDLING
 // ---------------------------------------------------------
 client.on('interactionCreate', async interaction => {
-  try {
-    // Autocomplete handling
-    if (interaction.isAutocomplete()) {
-      const focused = interaction.options.getFocused(true);
-      
+  // ───────────────────────────────────────────────
+  // IMMEDIATELY defer ALL slash commands (prevents 10062 timeout)
+  // ───────────────────────────────────────────────
+  if (interaction.isChatInputCommand()) {
+    try {
+      await interaction.deferReply(); // public by default (flags: 0)
+      console.log(`[DEFER] Deferred ${interaction.commandName} for ${interaction.user.tag}`);
+    } catch (err) {
+      console.error(`Defer failed for ${interaction.commandName}:`, err);
+      try {
+        await interaction.reply({ content: "Sorry — I took too long. Try again!", flags: 64 });
+      } catch {}
+      return;
+    }
+  }
+
+  // Autocomplete (no defer needed)
+  if (interaction.isAutocomplete()) {
+    const focused = interaction.options.getFocused(true);
+
+    if (focused.name === 'opponent') {
+      const search = (focused.value || '').toLowerCase();
+      const { data: teamsData, error } = await supabase.from('teams').select('name').limit(200);
+      if (error) {
+        console.error("Autocomplete error:", error);
+        return interaction.respond([]);
+      }
+      const list = (teamsData || []).map(r => r.name).filter(n => n.toLowerCase().includes(search));
+      list.sort((a, b) => a.localeCompare(b));
+      return interaction.respond(list.slice(0, 25).map(n => ({ name: n, value: n })));
+    }
+
+    // Add other autocomplete cases here (coach, new_team, home_team, away_team) ...
+    // copy them from your original code if needed
+    return;
+  }
+
+  if (!interaction.isChatInputCommand()) return;
+
+  const name = interaction.commandName;
+
+  // ───────────────────────────────────────────────
+  // /listteams
+  // ───────────────────────────────────────────────
+  if (name === 'listteams') {
+    try {
+      const success = await runListTeamsDisplay();
+      await interaction.editReply(
+        success ? 'Team list posted to #team-lists.' : 'Error posting team list.'
+      );
+    } catch (err) {
+      console.error('listteams error:', err);
+      await interaction.editReply('An error occurred while listing teams.');
+    }
+    return;
+  }
+
+  // ───────────────────────────────────────────────
+  // /advance
+  // ───────────────────────────────────────────────
+  if (name === 'advance') {
+    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.editReply("Only the commissioner can advance the week.");
+    }
+
+    try {
+      const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+      const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+
+      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+
+      const summaryWeek = currentWeek; // week we're summarizing
+
+      // Fetch press releases
+      const { data: pressData } = await supabase
+        .from('news_feed')
+        .select('text')
+        .eq('week', summaryWeek)
+        .eq('season', currentSeason);
+
+      const pressBullets = pressData?.map(p => `• ${p.text}`) || [];
+
+      // Fetch results
+      const { data: weeklyResults } = await supabase
+        .from('results')
+        .select('*')
+        .eq('season', currentSeason)
+        .eq('week', summaryWeek);
+
+      let resultsText = weeklyResults?.length
+        ? weeklyResults.map(r => `${r.user_team_name} ${r.user_score} - ${r.opponent_team_name} ${r.opponent_score}\nSummary: ${r.summary}`).join('\n\n')
+        : '';
+
+      const embed = {
+        title: `Weekly Summary – Season ${currentSeason}, Week ${summaryWeek}`,
+        color: 0x1e90ff,
+        description: '',
+        timestamp: new Date()
+      };
+
+      if (pressBullets.length) embed.description += '**Press Releases:**\n' + pressBullets.join('\n') + '\n\n';
+      if (resultsText) embed.description += '**Game Results:**\n' + resultsText;
+      if (!embed.description) embed.description = 'No news or results this week.';
+
+      const guild = interaction.guild;
+      if (guild) {
+        const channels = {
+          news: guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased()),
+          general: guild.channels.cache.find(c => c.name === 'general' && c.isTextBased()),
+          advance: guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased())
+        };
+
+        if (channels.advance) {
+          await channels.advance.send(`Advanced to Week ${currentWeek + 1}`).catch(e => console.error('Advance msg failed:', e));
+        }
+        if (channels.news) await channels.news.send({ embeds: [embed] }).catch(e => console.error('news-feed failed:', e));
+        if (channels.general) await channels.general.send({ embeds: [embed] }).catch(e => console.error('general failed:', e));
+      }
+
+      const newWeek = currentWeek + 1;
+      await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
+
+      await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to #news-feed and #general.`);
+    } catch (err) {
+      console.error('advance error:', err);
+      await interaction.editReply(`Error: ${err.message}`);
+    }
+    return;
+  }
+
+  // ... add your other commands here (joboffers, resetteam, etc.) ...
+  // use interaction.editReply() instead of reply() since we already deferred
+});
       // Autocomplete for /game-result opponent
       if (focused.name === 'opponent') {
         const search = (focused.value || '').toLowerCase();
