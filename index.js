@@ -633,24 +633,15 @@ client.on('interactionCreate', async interaction => {
     // /listteams
     // ---------------------------
     if (name === 'listteams') {
-  // Defer AS EARLY AS POSSIBLE - even before try/catch
   try {
-    // This MUST be the first thing that touches the interaction
-    await interaction.deferReply({ // Old await interaction.deferReply({ ephemeral: false }); await interaction.editReply({ content: '...', ephemeral: true });  // New await interaction.deferReply();  // defaults to non-ephemeral await interaction.editReply({ content: '...', flags: 64 });  // 64 = ephemeral false });
-    console.log(`[listteams] Deferred reply for user ${interaction.user.tag}`);
+    await interaction.deferReply({ ephemeral: false });
+    // Log without optional chaining - user should always exist
+    console.log(`[listteams] Deferred reply for user ${interaction.user.tag || 'unknown user'}`);
   } catch (err) {
     console.error("Failed to defer /listteams:", err);
-    // Optional: if you want to try a fallback (rarely works after expiration)
-    try {
-      await interaction.reply({
-        content: "Sorry, I took too long to respond — please try again.",
-        // Old await interaction.deferReply({ ephemeral: false }); await interaction.editReply({ content: '...', ephemeral: true });  // New await interaction.deferReply();  // defaults to non-ephemeral await interaction.editReply({ content: '...', flags: 64 });  // 64 = ephemeral true
-      });
-    } catch {} // ignore if this also fails
     return;
   }
 
-  // Now do the slow work
   try {
     const success = await runListTeamsDisplay();
     if (!success) {
