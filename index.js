@@ -58,6 +58,7 @@ const {
 } = require('discord.js');
 
 const { createClient } = require('@supabase/supabase-js');
+
 // Create Supabase client (make sure RENDER env vars are set)
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
@@ -72,77 +73,7 @@ const client = new Client({
   ],
   partials: [ Partials.Message, Partials.Channel, Partials.Reaction ]
 });
-client.on('debug', (info) => {
-  console.log('[DEBUG]', info);  // This logs EVERY gateway step — very noisy but crucial
-});
 
-client.on('error', (err) => {
-  console.error('[CLIENT ERROR]', err);
-});
-
-client.on('warn', (warn) => {
-  console.warn('[WARN]', warn);
-});
-
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
-  // your existing ready code
-});
-
-client.on('disconnect', (closeEvent) => {
-  console.error('[DISCONNECT] Code:', closeEvent?.code, 'Reason:', closeEvent?.reason || 'Unknown');
-});
-
-client.on('reconnecting', () => {
-  console.log('[RECONNECTING] Gateway attempting reconnect...');
-});
-
-// Wrap login
-client.login(process.env.DISCORD_TOKEN)
-  .then(() => console.log('[LOGIN] Promise resolved - waiting for ready...'))
-  .catch(err => {
-    console.error('[LOGIN FAIL]', err);
-    process.exit(1);  // Crash to force restart if login bombs
-  });
-client.once('ready', () => {
-  console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
-  // your existing ready code
-});
-
-client.on('disconnect', (closeEvent) => {
-  console.error('Gateway disconnected - Code:', closeEvent?.code, 'Reason:', closeEvent?.reason || 'Unknown');
-});
-
-client.on('reconnecting', () => {
-  console.log('Gateway attempting reconnect...');
-});
-
-client.on('error', (err) => {
-  console.error('Discord client error:', err.message || err);
-});
-
-client.login(process.env.DISCORD_TOKEN).catch(err => {
-  console.error('Login failed after token update:', err);
-  process.exit(1); // force restart if login bombs
-});
-console.log('[PRE-LOGIN] Token length:', process.env.DISCORD_TOKEN?.length || 'MISSING');
-
-client.login(process.env.DISCORD_TOKEN)
-  .then(() => {
-    console.log('[LOGIN SUCCESS] Gateway login promise resolved');
-  })
-  .catch(err => {
-    console.error('[LOGIN ERROR]', err);
-    process.exit(1);
-  });
-
-// Optional: force timeout if ready never fires (after 60 seconds)
-setTimeout(() => {
-  if (!client.isReady()) {
-    console.error('[TIMEOUT] No ready event after 60s - gateway likely hung');
-    process.exit(1);
-  }
-}, 60000);
 const jobOfferUsed = new Set(); // soft-lock so users don't spam requests
 if (!globalThis.jobOfferUsedGlobal) globalThis.jobOfferUsedGlobal = jobOfferUsed; // aid debugging across reloads
 
@@ -1847,20 +1778,6 @@ client.on('messageCreate', async msg => {
 // ---------------------------------------------------------
 // START BOT
 // ---------------------------------------------------------
-
-// const { Client, GatewayIntentBits } = require('discord.js');
-
-// Create client FIRST
-//const client = new Client({
-  //intents: [
-    // Add your actual intents here, e.g.:
-    //GatewayIntentBits.Guilds,
-    //GatewayIntentBits.GuildMessages,
-    // GatewayIntentBits.MessageContent,  // if needed — enable in portal
-    // etc.
-  //],
-//});
-
 // Global error handlers and graceful shutdown
 process.on('unhandledRejection', (reason, promise) => {
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
@@ -1869,10 +1786,11 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', async (err) => {
   console.error('Uncaught Exception:', err);
   try {
-    if (client?.destroy) await client.destroy();
+    if (client && client.destroy) await client.destroy();
   } catch (e) {
     console.error('Error during client.destroy() after uncaughtException:', e);
   }
+  // Exit with failure - let the hosting platform restart the process
   process.exit(1);
 });
 
@@ -1880,79 +1798,20 @@ client.on('error', (err) => console.error('Discord client error:', err));
 client.on('warn', (info) => console.warn('Discord client warning:', info));
 client.on('shardError', (error) => console.error('Discord client shardError:', error));
 
-client.on('ready', () => {
-  console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
-});
-
-client.on('disconnect', (closeEvent) => {
-  console.log('Disconnected from Discord:', closeEvent?.code, closeEvent?.reason);
-});
-
-client.on('reconnecting', () => {
-  console.log('Attempting to reconnect to Discord...');
-});
-
-// Graceful shutdown
 const _shutdown = async (signal) => {
   console.log(`Received ${signal} - shutting down gracefully...`);
   try {
-    if (client?.destroy) await client.destroy();
+    if (client && client.destroy) await client.destroy();
   } catch (e) {
     console.error('Error during client.destroy() in shutdown:', e);
   }
+  // Give logs a moment to flush
   setTimeout(() => process.exit(0), 500);
 };
 
 process.on('SIGTERM', () => _shutdown('SIGTERM'));
 process.on('SIGINT', () => _shutdown('SIGINT'));
 
-// ---------------------------------------------------------
-// LOGIN — ONLY ONCE, at the END, after all events are attached
-// ---------------------------------------------------------
-const TOKEN = process.env.DISCORD_TOKEN || process.env.TOKEN; // support both names during transition
-
-if (!TOKEN) {
-  console.error('No DISCORD_TOKEN or TOKEN found in environment variables!');
-  process.exit(1);
-}
-
-client.login(TOKEN)
-  .then(() => console.log('Login promise resolved successfully'))
-  .catch(err => {
-    console.error('Login failed:', err);
-    // Optional: exit on fatal login error so Render restarts fresh
-    process.exit(1);
-  });
-
-// Your other code (commands, HTTP server for health checks, etc.) goes here
-// e.g. the "Health server running on port 10000" part
-
-client.on('disconnect', (closeEvent) => {
-  console.error('Discord disconnected:', closeEvent?.code, closeEvent?.reason);
-});
-
-client.on('reconnecting', () => {
-  console.log('Discord reconnecting...');
-});
-
-client.on('error', (err) => console.error('Discord error:', err));
-client.on('ready', () => {
-  console.log(`Logged in as ${client.user.tag} at ${new Date().toISOString()}`);
-  // ... your existing ready code
-});
-
-client.on('disconnect', (closeEvent) => {
-  console.error('Gateway disconnected:', closeEvent?.code, closeEvent?.reason || 'No reason');
-});
-
-client.on('reconnecting', () => {
-  console.log('Gateway reconnecting...');
-});
-
-client.on('error', (err) => {
-  console.error('Discord client error:', err);
-});
-
-client.on('warn', (info) => {
-  console.warn('Discord warning:', info);
+client.login(process.env.DISCORD_TOKEN).catch(e => {
+  console.error("Failed to login:", e);
 });
