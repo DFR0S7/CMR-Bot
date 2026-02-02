@@ -544,7 +544,7 @@ client.on('interactionCreate', async interaction => {
 
       let offers;
       try {
-        offers = await sendJobOffersToUser(interaction.user, 5);
+        offers = await sendJobOffersToUser(interaction.user, 3);
       } catch (err) {
         console.error("Failed to fetch/send offers:", err);
         jobOfferUsed.delete(interaction.user.id);
@@ -1672,7 +1672,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     jobOfferUsed.add(user.id);
 
     try {
-      const offers = await sendJobOffersToUser(user, 5);
+      const offers = await sendJobOffersToUser(user, 3);
       if (!offers || offers.length === 0) {
         jobOfferUsed.delete(user.id);
         try { await user.send("No teams available right now."); } catch (e) {}
