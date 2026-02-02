@@ -550,7 +550,7 @@ client.on('interactionCreate', async interaction => {
     } catch (err) {
       console.error(`Defer failed for /${interaction.commandName}:`, err);
       try {
-        await interaction.reply({ content: "Sorry — took too long. Try again!", flags: 64 });
+        await interaction.editReply({ content: "Sorry — took too long. Try again!", flags: 64 });
       } catch {}
       return;
     }
@@ -887,7 +887,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'ranking-all-time') {
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ flags: 64, content: "Only the commissioner can view rankings." });
+        return interaction.editReply({ flags: 64, content: "Only the commissioner can view rankings." });
       }
 
       const isPublic = interaction.options.getBoolean('public') || false;
@@ -1170,7 +1170,7 @@ client.on('messageCreate', async msg => {
     const offers = client.userOffers[userId];
     const choice = parseInt(msg.content);
     if (isNaN(choice) || choice < 1 || choice > offers.length) {
-      return msg.reply("Reply with the number of the team you choose (from the DM list).");
+      return msg.editReply("Reply with the number of the team you choose (from the DM list).");
     }
 
     const team = offers[choice - 1];
@@ -1183,10 +1183,10 @@ client.on('messageCreate', async msg => {
 
     if (updateResp.error) {
       console.error("Failed to claim team:", updateResp.error);
-      return msg.reply(`Failed to claim ${team.name}: ${updateResp.error.message}`);
+      return msg.editReply(`Failed to claim ${team.name}: ${updateResp.error.message}`);
     }
 
-    msg.reply(`You accepted the job offer from **${team.name}**!`);
+    msg.editReply(`You accepted the job offer from **${team.name}**!`);
     delete client.userOffers[userId];
 
     // announce in general channel and perform setup
@@ -1241,7 +1241,7 @@ client.on('messageCreate', async msg => {
     await runListTeamsDisplay();
   } catch (err) {
     console.error("DM accept offer error:", err);
-    try { await msg.reply("An error occurred processing your request."); } catch (e) {}
+    try { await msg.editReply("An error occurred processing your request."); } catch (e) {}
   }
 });
 
