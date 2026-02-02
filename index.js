@@ -543,14 +543,14 @@ client.on('interactionCreate', async interaction => {
   // ───────────────────────────────────────────────────────
   // 2. IMMEDIATELY defer ALL slash commands (prevents 10062 timeout)
   // ───────────────────────────────────────────────────────
-  if (interaction.isChatInputCommand()) {
+ if (interaction.isChatInputCommand()) {
     try {
-      await interaction.deferReply(); // public by default (no ephemeral key)
-      console.log(`[DEFER] Deferred /${interaction.commandName} for ${interaction.user.tag}`);
+      await interaction.deferReply(); // public by default (no flags needed unless ephemeral)
+      console.log(`[DEFER SUCCESS] Deferred /${interaction.commandName} for ${interaction.user.tag}`);
     } catch (err) {
-      console.error(`Defer failed for /${interaction.commandName}:`, err);
+      console.error(`[DEFER FAILED] for /${interaction.commandName}:`, err);
       try {
-        await interaction.editReply({ content: "Sorry — took too long. Try again!", flags: 64 });
+        await interaction.reply({ content: "Sorry — I took too long. Try again!", flags: 64 });
       } catch {}
       return;
     }
@@ -720,18 +720,20 @@ client.on('interactionCreate', async interaction => {
   // /advance
   // ───────────────────────────────────────────────
   if (name === 'advance') {
-  console.log('[advance] Started for', interaction.user.tag);
+    console.log('[advance] Permission check...');
+    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
+    }
 
-  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-    console.log('[advance] Permission denied');
-    return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
-  }
+    try {
+      console.log('[advance] Fetching week & season...');
+      const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+      const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
 
-  try {
-    console.log('[advance] Fetching current week & season...');
-    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
-    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
 
+      console.log('[advance] Building summary for week', currentWeek);
     const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
     const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
     console.log('[advance] Current:', { week: currentWeek, season: currentSeason });
@@ -757,17 +759,18 @@ client.on('interactionCreate', async interaction => {
     console.log('[advance] Sending embeds to channels...');
     // your channel send code...
 
-    console.log('[advance] Updating meta table...');
-    const newWeek = currentWeek + 1;
-    await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
+const newWeek = currentWeek + 1;
+      console.log('[advance] Updating meta to week', newWeek);
+      await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
 
-    console.log('[advance] Success - replying to user');
-    await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted.`);
-  } catch (err) {
-    console.error('[advance] Full error:', err);
-    await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
+      console.log('[advance] Sending final reply');
+      await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted.`);
+    } catch (err) {
+      console.error('[advance] Error:', err);
+      await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
+    }
+    return;
   }
-}
   // ───────────────────────────────────────────────
   // /season-advance
   // ───────────────────────────────────────────────
