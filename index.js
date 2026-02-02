@@ -84,7 +84,7 @@ if (!globalThis.jobOfferUsedGlobal) globalThis.jobOfferUsedGlobal = jobOfferUsed
 const commands = [
   new SlashCommandBuilder()
     .setName('joboffers')
-    .setDescription('Get your Coach Mode Rebuild job offers')
+    .setDescription('Get your CMR Dynasty job offers')
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
@@ -311,7 +311,7 @@ function buildOffersGroupedByConference(offers) {
 }
 
 /**
- * Run the listteams display logic (posts to team-lists channel)
+ * Run the listteams display logic (posts to member-list channel)
  * Called both by /listteams command and by team claim/reset flows
  */
 async function runListTeamsDisplay() {
@@ -346,7 +346,7 @@ async function runListTeamsDisplay() {
 
     let text = "";
     for (const [conf, tList] of Object.entries(confMap)) {
-      // Show teams with stars <= 2.5 OR any team taken by a user (regardless of star rating)
+      // Show teams with stars = 2.5 OR any team taken by a user (regardless of star rating)
       const filtered = tList.filter(t => {
         const hasTakenBy = t.taken_by && t.taken_by !== '' && t.taken_by !== 'null';
         const isLowStar = t.stars !== null && parseFloat(t.stars) == 2.5;
@@ -371,7 +371,7 @@ async function runListTeamsDisplay() {
     if (!text) text = "No teams available.";
 
     const embed = {
-      title: "2.5★ Teams (+ All User Teams)",
+      title: "2.5 ★ Teams (+ All User Teams)",
       description: text,
       color: 0x2b2d31,
       timestamp: new Date()
@@ -400,7 +400,7 @@ async function sendJobOffersToUser(user, count = 3) {
   const { data: available, error } = await supabase
     .from('teams')
     .select('*')
-    .eq('stars', 2.5)
+    .eq ('stars', 2.5)
     .is('taken_by', null);
 
   if (error) throw error;
@@ -416,7 +416,7 @@ async function sendJobOffersToUser(user, count = 3) {
   // We want the numbered list per message; because we used pickRandom across conferences,
   // create a unified list with numbers 1..N but still show conferences headers.
   // To make numbering consistent with user's reply, flatten offers and show number prefix.
-  let dmText = `Your Coach Mode Rebuild job offers:\n\n`;
+  let dmText = `Your CMR Dynasty job offers:\n\n`;
   // group for visual context
   const grouped = {};
   for (let idx = 0; idx < offers.length; idx++) {
@@ -645,7 +645,7 @@ client.on('interactionCreate', async interaction => {
         return interaction.editReply("Error posting team list.");
       }
 
-      return interaction.editReply("Team list posted to #team-lists.");
+      return interaction.editReply("Team list posted to #member-list.");
     }
 
     // ---------------------------
@@ -1058,7 +1058,7 @@ client.on('interactionCreate', async interaction => {
       // post advance message in advance channel
       const guild = client.guilds.cache.first();
       if (guild) {
-        const advanceChannel = guild.channels.cache.find(c => c.name === 'advance' && c.isTextBased());
+        const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
         if (advanceChannel) await advanceChannel.send("We have advanced to the next week").catch(() => {});
       }
 
@@ -1149,7 +1149,7 @@ client.on('interactionCreate', async interaction => {
           await newsFeedChannel.send({ embeds: [embed] }).catch(() => {});
 
           // Also post the weekly summary embed to #general
-          const generalChannel = guild.channels.cache.find(c => c.name === 'general' && c.isTextBased());
+          const generalChannel = guild.channels.cache.find(c => c.name === 'main-chat' && c.isTextBased());
           if (generalChannel) {
             await generalChannel.send({ embeds: [embed] }).catch(() => {});
           }
@@ -1183,7 +1183,7 @@ client.on('interactionCreate', async interaction => {
       try {
         const guild = client.guilds.cache.first();
         if (guild) {
-          const advanceChannel = guild.channels.cache.find(c => c.name === 'advance' && c.isTextBased());
+          const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
           if (advanceChannel) {
             await advanceChannel.send(`We have advanced to Season ${currentSeason + 1}`).catch(() => {});
           }
@@ -1309,14 +1309,14 @@ client.on('interactionCreate', async interaction => {
         else description += `*Record in parentheses is vs user teams only*`;
 
         const embed = {
-          title: `🏆 Coach Mode Rebuild Rankings – Season ${currentSeason}`,
+          title: `🏆 CMR Dynasty Rankings – Season ${currentSeason}`,
           description: '```\n' + description + '\n```',
           color: 0xffd700,
           timestamp: new Date()
         };
 
         if (isPublic) {
-          const generalChannel = interaction.guild.channels.cache.find(ch => ch.name === 'general');
+          const generalChannel = interaction.guild.channels.cache.find(ch => ch.name === 'main-chat');
           if (generalChannel && generalChannel.isTextBased()) {
             await generalChannel.send({ embeds: [embed] });
             return interaction.editReply({ content: 'Rankings posted to #general.' });
@@ -1383,7 +1383,7 @@ client.on('interactionCreate', async interaction => {
         };
 
         // Fetch current users (only those with teams) and their current team names
-        const { data: currentUsers, error: usersErr } = await supabase.from('teams').select('taken_by, team_name').not('taken_by', 'is', null);
+        const { data: currentUsers, error: usersErr } = await supabase.from('teams').select('taken_by, name').not('taken_by', 'is', null);
         if (usersErr) throw usersErr;
         const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
         
@@ -1391,7 +1391,7 @@ client.on('interactionCreate', async interaction => {
         const userTeamMap = {};
         if (currentUsers) {
           for (const u of currentUsers) {
-            userTeamMap[u.taken_by] = u.team_name;
+            userTeamMap[u.taken_by] = u.name;
           }
         }
 
@@ -1463,7 +1463,7 @@ client.on('interactionCreate', async interaction => {
           // 1.  DisplayName
           //     Team Name
           //     50-20 (45-15)
-          description += `${rank.toString().padStart(2, ' ')}.  ${displayName}\n`;
+          description += `${rank.toString().padStart(2, ' ')}. ${displayName}\n`;
           description += `    ${teamName}\n`;
           description += `    ${record} (${userRecord})\n\n`;
         }
@@ -1472,14 +1472,14 @@ client.on('interactionCreate', async interaction => {
         else description += `*Record in parentheses is vs user teams only*`;
 
         const embed = {
-          title: `👑 Coach Mode Rebuild All-Time Rankings`,
+          title: `👑 CMR Dynasty All-Time Rankings`,
           description: '```\n' + description + '\n```',
           color: 0xffd700,
           timestamp: new Date()
         };
 
         if (isPublic) {
-          const generalChannel = interaction.guild.channels.cache.find(ch => ch.name === 'general');
+          const generalChannel = interaction.guild.channels.cache.find(ch => ch.name === 'main-chat');
           if (generalChannel && generalChannel.isTextBased()) {
             await generalChannel.send({ embeds: [embed] });
             return interaction.editReply({ content: 'All-time rankings posted to #general.' });
@@ -1644,7 +1644,7 @@ client.on('guildMemberRemove', async (member) => {
 // ---------------------------------------------------------
 // REACTION HANDLER (for rules reaction -> trigger job offers)
 // ---------------------------------------------------------
-// Behavior: when a user reacts with 🫡 in the "rules" channel, send them job offers
+// Behavior: when a user reacts with :saluting_face: in the "rules" channel, send them job offers
 // Adjust channel name or message id if you prefer a different trigger
 client.on('messageReactionAdd', async (reaction, user) => {
   try {
@@ -1653,8 +1653,8 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (reaction.partial) await reaction.fetch();
     if (reaction.message.partial) await reaction.message.fetch();
 
-    // only watch for 🫡
-    if (reaction.emoji.name !== '🫡') return;
+    // only watch for :saluting_face: 
+    if (reaction.emoji.name !== ':saluting_face:') return;
 
     // optionally restrict to a specific message ID or channel name
     // if you want to restrict to the rules channel, check:
@@ -1672,7 +1672,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     jobOfferUsed.add(user.id);
 
     try {
-      const offers = await sendJobOffersToUser(user, 3);
+      const offers = await sendJobOffersToUser(user, 5);
       if (!offers || offers.length === 0) {
         jobOfferUsed.delete(user.id);
         try { await user.send("No teams available right now."); } catch (e) {}
@@ -1722,7 +1722,7 @@ client.on('messageCreate', async msg => {
     // announce in general channel and perform setup
     const guild = client.guilds.cache.first();
     if (guild) {
-      const general = guild.channels.cache.find(c => c.name === 'general' && c.isTextBased());
+      const general = guild.channels.cache.find(c => c.name === 'main-chat' && c.isTextBased());
       if (general) general.send(`🏈 <@${userId}> has accepted a job offer from **${team.name}**!`).catch(() => {});
 
       // Create team-specific channel (named after school name)
