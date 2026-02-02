@@ -720,20 +720,17 @@ client.on('interactionCreate', async interaction => {
   // /advance
   // ───────────────────────────────────────────────
   if (name === 'advance') {
-    console.log('[advance] Permission check...');
-    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
-    }
+  console.log('[advance] Started');
 
-    try {
-      console.log('[advance] Fetching week & season...');
-      const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
-      const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
+  }
 
-      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
-      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+  try {
+    console.log('[advance] Fetching week & season...');
+    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
 
-      console.log('[advance] Building summary for week', currentWeek);
     const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
     const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
     console.log('[advance] Current:', { week: currentWeek, season: currentSeason });
@@ -744,7 +741,7 @@ client.on('interactionCreate', async interaction => {
       .select('text')
       .eq('week', currentWeek)
       .eq('season', currentSeason);
-    console.log('[advance] Press releases fetched:', pressData?.length || 0);
+    console.log('[advance] Press count:', pressData?.length || 0);
 
     console.log('[advance] Fetching weekly results...');
     const { data: weeklyResults } = await supabase
@@ -752,25 +749,22 @@ client.on('interactionCreate', async interaction => {
       .select('*')
       .eq('season', currentSeason)
       .eq('week', currentWeek);
-    console.log('[advance] Results fetched:', weeklyResults?.length || 0);
+    console.log('[advance] Results count:', weeklyResults?.length || 0);
 
-    // ... rest of your embed building logic ...
+    // ... your embed building, channel sending, etc. logic here ...
+    // (add console.log('[advance] Sending embeds...') before sends if you want)
 
-    console.log('[advance] Sending embeds to channels...');
-    // your channel send code...
+    const newWeek = currentWeek + 1;
+    console.log('[advance] Updating meta to week', newWeek);
+    await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
 
-const newWeek = currentWeek + 1;
-      console.log('[advance] Updating meta to week', newWeek);
-      await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
-
-      console.log('[advance] Sending final reply');
-      await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted.`);
-    } catch (err) {
-      console.error('[advance] Error:', err);
-      await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
-    }
-    return;
+    console.log('[advance] Sending final reply');
+    await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted.`);
+  } catch (err) {
+    console.error('[advance] Error:', err);
+    await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
   }
+}
   // ───────────────────────────────────────────────
   // /season-advance
   // ───────────────────────────────────────────────
