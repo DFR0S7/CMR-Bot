@@ -194,7 +194,7 @@ const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
 // ---------------------------------------------------------
 // BOT READY
 // ---------------------------------------------------------
-client.once('ready', async () => {
+client.once('clientReady', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   // Set up role-based permissions after bot is ready
@@ -266,7 +266,6 @@ client.once('ready', async () => {
     console.error("Failed to set command permissions:", err);
   }
 });
-
 // ---------------------------------------------------------
 // HELPERS
 // ---------------------------------------------------------
