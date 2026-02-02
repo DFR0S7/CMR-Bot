@@ -552,7 +552,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'joboffers') {
       if (jobOfferUsed.has(interaction.user.id)) {
-        return interaction.reply({ ephemeral: true, content: "⛔ You already received a job offer." });
+        return interaction.reply({ flags: 64, content: "⛔ You already received a job offer." });
       }
       jobOfferUsed.add(interaction.user.id);
 
@@ -562,15 +562,15 @@ client.on('interactionCreate', async interaction => {
       } catch (err) {
         console.error("Failed to fetch/send offers:", err);
         jobOfferUsed.delete(interaction.user.id);
-        return interaction.reply({ ephemeral: true, content: `Error fetching offers: ${err.message}` });
+        return interaction.reply({ flags: 64, content: `Error fetching offers: ${err.message}` });
       }
 
       if (!offers || offers.length === 0) {
         jobOfferUsed.delete(interaction.user.id);
-        return interaction.reply({ ephemeral: true, content: "No teams available at the moment." });
+        return interaction.reply({ flags: 64, content: "No teams available at the moment." });
       }
 
-      await interaction.reply({ ephemeral: true, content: "Check your DMs for job offers!" });
+      await interaction.reply({ flags: 64, content: "Check your DMs for job offers!" });
       return;
     }
 
@@ -580,7 +580,7 @@ client.on('interactionCreate', async interaction => {
     if (name === 'resetteam') {
       // Defer reply immediately since this operation takes time
       try {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
       } catch (err) {
         console.error("Failed to defer /resetteam reply (interaction may have expired):", err);
         return; // Can't respond to an expired interaction
@@ -648,7 +648,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'listteams') {
       try {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
       } catch (err) {
         console.error("Failed to defer /listteams reply (interaction may have expired):", err);
         return; // Can't respond to an expired interaction
@@ -682,9 +682,9 @@ client.on('interactionCreate', async interaction => {
       const { data: userTeam, error: userTeamErr } = await supabase.from('teams').select('*').eq('taken_by', interaction.user.id).maybeSingle();
       if (userTeamErr) {
         console.error("game-result userTeamErr:", userTeamErr);
-        return interaction.reply({ ephemeral: true, content: `Error: ${userTeamErr.message}` });
+        return interaction.reply({ flags: 64, content: `Error: ${userTeamErr.message}` });
       }
-      if (!userTeam) return interaction.reply({ ephemeral: true, content: "You don't control a team." });
+      if (!userTeam) return interaction.reply({ flags: 64, content: "You don't control a team." });
 
       // Check if user already submitted a result this week
       const { data: existingUserResult } = await supabase
@@ -697,7 +697,7 @@ client.on('interactionCreate', async interaction => {
       
       if (existingUserResult) {
         return interaction.reply({ 
-          ephemeral: true, 
+          flags: 64, 
           content: `You already submitted a result this week (vs ${existingUserResult.opponent_team_name}). You can only submit one result per week.`
         });
       }
@@ -710,7 +710,7 @@ client.on('interactionCreate', async interaction => {
         const { data: teamsData, error: teamsErr } = await supabase.from('teams').select('*').limit(1000);
         if (teamsErr) {
           console.error('game-result teams fetch error:', teamsErr);
-          return interaction.reply({ ephemeral: true, content: `Error fetching teams: ${teamsErr.message}` });
+          return interaction.reply({ flags: 64, content: `Error fetching teams: ${teamsErr.message}` });
         }
 
         const needle = (opponentName || '').toLowerCase().trim();
@@ -722,10 +722,10 @@ client.on('interactionCreate', async interaction => {
         }
       } catch (err) {
         console.error('game-result opponent lookup error:', err);
-        return interaction.reply({ ephemeral: true, content: `Error looking up opponent: ${err.message}` });
+        return interaction.reply({ flags: 64, content: `Error looking up opponent: ${err.message}` });
       }
 
-      if (!opponentTeam) return interaction.reply({ ephemeral: true, content: `Opponent "${opponentName}" not found.` });
+      if (!opponentTeam) return interaction.reply({ flags: 64, content: `Opponent "${opponentName}" not found.` });
 
       // Check if opponent (if user-controlled) already submitted this matchup
       const isOpponentUserControlled = opponentTeam.taken_by != null;
@@ -741,7 +741,7 @@ client.on('interactionCreate', async interaction => {
         
         if (existingOpponentResult) {
           return interaction.reply({ 
-            ephemeral: true, 
+            flags: 64, 
             content: `${opponentTeam.name} already submitted this game result. Only the home team (first to submit) can enter the result.`
           });
         }
@@ -768,7 +768,7 @@ client.on('interactionCreate', async interaction => {
 
       if (insertResp.error) {
         console.error("results insert error:", insertResp.error);
-        return interaction.reply({ ephemeral: true, content: `Failed to save result: ${insertResp.error.message}` });
+        return interaction.reply({ flags: 64, content: `Failed to save result: ${insertResp.error.message}` });
       }
 
       // Update records table for both users (if applicable)
@@ -867,7 +867,7 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      return interaction.reply({ ephemeral: true, content: `Result recorded: ${userTeam.name} vs ${opponentTeam.name}` });
+      return interaction.reply({ flags: 64, content: `Result recorded: ${userTeam.name} vs ${opponentTeam.name}` });
     }
 
     // ---------------------------
@@ -876,7 +876,7 @@ client.on('interactionCreate', async interaction => {
     if (name === 'any-game-result') {
       // Commissioner check
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ ephemeral: true, content: "Only the commissioner can use this command." });
+        return interaction.reply({ flags: 64, content: "Only the commissioner can use this command." });
       }
 
       const homeTeamName = interaction.options.getString('home_team');
@@ -909,11 +909,11 @@ client.on('interactionCreate', async interaction => {
         if (!awayTeam) awayTeam = teamsData.find(t => (t.name || '').toLowerCase().includes(awayNeedle));
       } catch (err) {
         console.error('any-game-result team lookup error:', err);
-        return interaction.reply({ ephemeral: true, content: `Error looking up teams: ${err.message}` });
+        return interaction.reply({ flags: 64, content: `Error looking up teams: ${err.message}` });
       }
 
-      if (!homeTeam) return interaction.reply({ ephemeral: true, content: `Home team "${homeTeamName}" not found.` });
-      if (!awayTeam) return interaction.reply({ ephemeral: true, content: `Away team "${awayTeamName}" not found.` });
+      if (!homeTeam) return interaction.reply({ flags: 64, content: `Home team "${homeTeamName}" not found.` });
+      if (!awayTeam) return interaction.reply({ flags: 64, content: `Away team "${awayTeamName}" not found.` });
 
       const homeResult = homeScore > awayScore ? 'W' : 'L';
       const awayResult = homeScore > awayScore ? 'L' : 'W';
@@ -939,7 +939,7 @@ client.on('interactionCreate', async interaction => {
 
       if (homeInsert.error) {
         console.error("any-game-result insert error:", homeInsert.error);
-        return interaction.reply({ ephemeral: true, content: `Failed to save result: ${homeInsert.error.message}` });
+        return interaction.reply({ flags: 64, content: `Failed to save result: ${homeInsert.error.message}` });
       }
 
       // Update records for home team (if user-controlled)
@@ -1005,7 +1005,7 @@ client.on('interactionCreate', async interaction => {
       }
 
       return interaction.reply({ 
-        ephemeral: true, 
+        flags: 64, 
         content: `Result recorded for Week ${week}: ${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}` 
       });
     }
@@ -1024,7 +1024,7 @@ client.on('interactionCreate', async interaction => {
       const insert = await supabase.from('news_feed').insert([{ season, week, text }]);
       if (insert.error) {
         console.error("press-release insert error:", insert.error);
-        return interaction.reply({ ephemeral: true, content: `Error: ${insert.error.message}` });
+        return interaction.reply({ flags: 64, content: `Error: ${insert.error.message}` });
       }
 
       // also post to news-feed channel as a styled embed
@@ -1042,7 +1042,7 @@ client.on('interactionCreate', async interaction => {
         }
       }
 
-      return interaction.reply({ ephemeral: true, content: "Press release posted." });
+      return interaction.reply({ flags: 64, content: "Press release posted." });
     }
 
     // ---------------------------
@@ -1051,7 +1051,7 @@ client.on('interactionCreate', async interaction => {
     if (name === 'advance') {
       // Defer reply immediately to avoid interaction timeout
       try {
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: 64 });
       } catch (err) {
         console.error("Failed to defer /advance reply (interaction may have expired):", err);
         return;
@@ -1183,7 +1183,7 @@ client.on('interactionCreate', async interaction => {
     if (name === 'season-advance') {
       // commissioner check
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ ephemeral: true, content: "Only the commissioner can advance the season." });
+        return interaction.reply({ flags: 64, content: "Only the commissioner can advance the season." });
       }
 
       const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
@@ -1206,7 +1206,7 @@ client.on('interactionCreate', async interaction => {
         console.error('Failed to post season advance message:', err);
       }
 
-      return interaction.reply({ ephemeral: true, content: `Season advanced to ${currentSeason + 1}, week reset to 0.` });
+      return interaction.reply({ flags: 64, content: `Season advanced to ${currentSeason + 1}, week reset to 0.` });
     }
 
     // ---------------------------
@@ -1214,7 +1214,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'ranking') {
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ ephemeral: true, content: "Only the commissioner can view rankings." });
+        return interaction.reply({ flags: 64, content: "Only the commissioner can view rankings." });
       }
 
       const isPublic = interaction.options.getBoolean('public') || false;
@@ -1351,7 +1351,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'ranking-all-time') {
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ ephemeral: true, content: "Only the commissioner can view rankings." });
+        return interaction.reply({ flags: 64, content: "Only the commissioner can view rankings." });
       }
 
       const isPublic = interaction.options.getBoolean('public') || false;
@@ -1514,7 +1514,7 @@ client.on('interactionCreate', async interaction => {
     // ---------------------------
     if (name === 'move-coach') {
       if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ ephemeral: true, content: "Only the commissioner can move coaches." });
+        return interaction.reply({ flags: 64, content: "Only the commissioner can move coaches." });
       }
 
       try {
@@ -1598,7 +1598,7 @@ client.on('interactionCreate', async interaction => {
       if (interaction.replied || interaction.deferred) {
         await interaction.editReply(`Error: ${err.message}`);
       } else {
-        await interaction.reply({ ephemeral: true, content: `Error: ${err.message}` });
+        await interaction.reply({ flags: 64, content: `Error: ${err.message}` });
       }
     } catch (e) { /* ignore reply errors */ }
   }
