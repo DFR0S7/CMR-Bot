@@ -1049,148 +1049,68 @@ client.on('interactionCreate', async interaction => {
     // /move-coach
     // ---------------------------
     if (name === 'move-coach') {
-      if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.reply({ flags: 64, content: "Only the commissioner can move coaches." });
-      }
-
-      try {
-        await interaction.deferReply({ flags: 64 }); // ephemeral
-      } catch (err) {
-        console.error("Failed to defer /move-coach reply (interaction may have expired):", err);
-        return;
-      }
-
-      try {
-        const coachName = interaction.options.getString('coach');
-        const newTeamId = interaction.options.getString('new_team');
-
-        // Find the coach's current team by taken_by_name
-        const { data: coachTeams, error: coachErr } = await supabase
-          .from('teams')
-          .select('*')
-          .eq('taken_by_name', coachName);
-        if (coachErr) throw coachErr;
-
-        if (!coachTeams || coachTeams.length === 0) {
-          return interaction.editReply(`Coach "${coachName}" not found.`);
-        }
-
-        const oldTeam = coachTeams[0];
-        const coachUserId = oldTeam.taken_by;
-
-        // Fetch new team details
-        const { data: newTeam, error: newTeamErr } = await supabase
-          .from('teams')
-          .select('*')
-          .eq('id', newTeamId)
-          .maybeSingle();
-        if (newTeamErr) throw newTeamErr;
-
-        if (!newTeam) {
-          return interaction.editReply(`New team not found.`);
-        }
-
-        // Update old team: remove coach
-        const { error: oldUpdateErr } = await supabase
-          .from('teams')
-          .update({ taken_by: null, taken_by_name: null })
-          .eq('id', oldTeam.id);
-        if (oldUpdateErr) throw oldUpdateErr;
-
-        // Update new team: add coach
-        const { error: newUpdateErr } = await supabase
-          .from('teams')
-          .update({ taken_by: coachUserId, taken_by_name: coachName })
-          .eq('id', newTeamId);
-        if (newUpdateErr) throw newUpdateErr;
-
-        // Find and rename the team channel
-        const guild = interaction.guild;
-        if (guild) {
-          const teamChannelCategory = guild.channels.cache.find(ch => ch.name === 'Team Channels' && ch.type === ChannelType.GuildCategory);
-          if (teamChannelCategory) {
-            // Look for a channel with the old team name
-            const oldChannel = guild.channels.cache.find(
-              ch => ch.parent?.id === teamChannelCategory.id && ch.name.toLowerCase() === oldTeam.name.toLowerCase()
-            );
-            if (oldChannel) {
-              await oldChannel.setName(newTeam.name);
-            }
-          }
-        }
-
-        return interaction.editReply(
-          `✅ Moved **${coachName}** from **${oldTeam.name}** to **${newTeam.name}**. Channel renamed.`
-        );
-      } catch (err) {
-        console.error('move-coach command error:', err);
-        return interaction.editReply(`Error moving coach: ${err.message}`);
-      }
+    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.editReply({ content: "Only the commissioner can move coaches.", flags: 64 });
     }
 
-  } catch (err) {
-    console.error("interactionCreate error:", err);
     try {
-      if (interaction.replied || interaction.deferred) {
-        await interaction.editReply(`Error: ${err.message}`);
-      } else {
-        await interaction.reply({ flags: 64, content: `Error: ${err.message}` });
+      const coachName = interaction.options.getString('coach');
+      const newTeamId = interaction.options.getString('new_team');
+
+      const { data: coachTeams, error: coachErr } = await supabase
+        .from('teams')
+        .select('*')
+        .eq('taken_by_name', coachName);
+      if (coachErr) throw coachErr;
+      if (!coachTeams || coachTeams.length === 0) {
+        return interaction.editReply(`Coach "${coachName}" not found.`);
       }
-    } catch (e) { /* ignore reply errors */ }
-  }
-});
 
-// ---------------------------------------------------------
-// GUILD MEMBER REMOVE HANDLER (auto-reset team when user leaves)
-// ---------------------------------------------------------
-client.on('guildMemberRemove', async (member) => {
-  try {
-    const userId = member.user.id;
-    console.log(`User ${member.user.tag} (${userId}) left the server. Checking for team...`);
+      const oldTeam = coachTeams[0];
+      const coachUserId = oldTeam.taken_by;
 
-    // Find team by taken_by
-    const { data: teamData, error } = await supabase.from('teams').select('*').eq('taken_by', userId).limit(1).maybeSingle();
-    if (error) {
-      console.error("guildMemberRemove query error:", error);
-      return;
-    }
-    if (!teamData) {
-      console.log(`User ${userId} had no team.`);
-      return;
-    }
+      const { data: newTeam, error: newTeamErr } = await supabase
+        .from('teams')
+        .select('*')
+        .eq('id', newTeamId)
+        .maybeSingle();
+      if (newTeamErr) throw newTeamErr;
+      if (!newTeam) {
+        return interaction.editReply(`New team not found.`);
+      }
 
-    console.log(`User ${userId} had team ${teamData.name}. Resetting...`);
+      await supabase.from('teams').update({ taken_by: null, taken_by_name: null }).eq('id', oldTeam.id);
+      await supabase.from('teams').update({ taken_by: coachUserId, taken_by_name: coachName }).eq('id', newTeamId);
 
-    // Remove from teams table
-    await supabase.from('teams').update({ taken_by: null, taken_by_name: null }).eq('id', teamData.id);
-    jobOfferUsed.delete(userId);
-
-    // Delete team-specific channel
-    const guild = member.guild;
-    if (guild) {
-      try {
-        const teamChannelsCategory = guild.channels.cache.find(c => c.name === 'Team Channels' && c.type === ChannelType.GuildCategory);
-        if (teamChannelsCategory) {
-          const teamChannel = guild.channels.cache.find(c => c.name === teamData.name.toLowerCase().replace(/\s+/g, '-') && c.isTextBased() && c.parentId === teamChannelsCategory.id);
-          if (teamChannel) {
-            await teamChannel.delete("User left server - removing team");
-            console.log(`Deleted channel for ${teamData.name}`);
+      const guild = interaction.guild;
+      if (guild) {
+        const teamChannelCategory = guild.channels.cache.find(ch => ch.name === 'Team Channels' && ch.type === ChannelType.GuildCategory);
+        if (teamChannelCategory) {
+          const oldChannel = guild.channels.cache.find(
+            ch => ch.parent?.id === teamChannelCategory.id && ch.name.toLowerCase() === oldTeam.name.toLowerCase()
+          );
+          if (oldChannel) {
+            await oldChannel.setName(newTeam.name);
           }
         }
-      } catch (err) {
-        console.error(`Failed to delete channel for ${teamData.name}:`, err);
       }
+
+      await interaction.editReply(
+        `✅ Moved **${coachName}** from **${oldTeam.name}** to **${newTeam.name}**. Channel renamed.`
+      );
+    } catch (err) {
+      console.error('move-coach error:', err);
+      await interaction.editReply(`Error moving coach: ${err.message}`);
     }
-
-    // Trigger listteams update
-    await runListTeamsDisplay();
-
-    console.log(`Successfully reset team ${teamData.name} for departed user ${userId}`);
-  } catch (err) {
-    console.error("guildMemberRemove error:", err);
+    return;
   }
-});
 
+  // ───────────────────────────────────────────────
+  // Catch-all for unhandled commands
+  // ───────────────────────────────────────────────
+  console.warn(`Unhandled command: /${name}`);
+  await interaction.editReply({ content: "Command not implemented yet.", flags: 64 }).catch(() => {});
+});
 // ---------------------------------------------------------
 // REACTION HANDLER (for rules reaction -> trigger job offers)
 // ---------------------------------------------------------
