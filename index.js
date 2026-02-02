@@ -315,77 +315,92 @@ function buildOffersGroupedByConference(offers) {
  */
 async function runListTeamsDisplay() {
   try {
-    const { data: teamsData, error } = await supabase.from('teams').select('*').order('conference', { ascending: true }).limit(1000);
+    const { data: teamsData, error } = await supabase
+      .from('teams')
+      .select('*')
+      .order('conference', { ascending: true })
+      .limit(1000);
+
     if (error) throw error;
 
-    // Group by conference
+    console.log(`[listteams] Fetched ${teamsData?.length || 0} total teams`);
+
     const confMap = {};
-    for (const t of teamsData) {
+    for (const t of teamsData || []) {
       const conf = t.conference || 'Independent';
       if (!confMap[conf]) confMap[conf] = [];
       confMap[conf].push(t);
     }
 
     const guild = client.guilds.cache.first();
-    if (!guild) return false;
+    if (!guild) {
+      console.error('[listteams] No guild in cache');
+      return false;
+    }
 
     const channel = guild.channels.cache.find(c => c.name === 'team-lists' && c.isTextBased());
-    if (!channel) return false;
+    if (!channel) {
+      console.error('[listteams] team-lists channel not found');
+      return false;
+    }
 
-    // delete old bot messages FIRST
+    // Clean old bot messages
     try {
       const messages = await channel.messages.fetch({ limit: 100 });
       const botMessages = messages.filter(m => m.author.id === client.user.id);
       for (const m of botMessages.values()) {
-        try { await m.delete(); } catch {}
+        await m.delete().catch(() => {});
       }
+      console.log(`[listteams] Deleted ${botMessages.size} old messages`);
     } catch (err) {
-      console.error("Error fetching/deleting old messages:", err);
+      console.error('[listteams] Error cleaning messages:', err);
     }
 
     let text = "";
     for (const [conf, tList] of Object.entries(confMap)) {
-      // Show teams with stars = 2.5 OR any team taken by a user (regardless of star rating)
       const filtered = tList.filter(t => {
-        const hasTakenBy = t.taken_by && t.taken_by !== '' && t.taken_by !== 'null';
-        const isLowStar = t.stars !== null && parseFloat(t.stars) == 2.5;
-        return isLowStar || hasTakenBy;
+        const hasTakenBy = t.taken_by && t.taken_by.trim() !== '' && t.taken_by !== 'null';
+
+        let isExactly25 = false;
+        if (t.stars != null) {
+          const starsNum = parseFloat(t.stars);
+          isExactly25 = Math.abs(starsNum - 2.5) < 0.0001;
+        }
+
+        return isExactly25 || hasTakenBy;
       });
+
+      console.log(`[listteams] ${conf}: ${tList.length} total → ${filtered.length} matched filter`);
+
       if (filtered.length === 0) continue;
 
-      // Sort teams alphabetically within the conference
       filtered.sort((a, b) => a.name.localeCompare(b.name));
 
       text += `\n__**${conf}**__\n`;
       for (const t of filtered) {
         if (t.taken_by) {
-          // mention the owner so it's clickable
           text += `🏈 **${t.name}** — <@${t.taken_by}> (${t.taken_by_name || 'Coach'})\n`;
         } else {
-          text += `🟢 **${t.name}** — Available\n`;
+          text += `🟢 **${t.name}** — Available (2.5★)\n`;
         }
       }
     }
 
-    if (!text) text = "No teams available.";
+    if (!text) text = "No 2.5★ teams or taken teams available at this time.";
 
     const embed = {
-      title: "2.5 ★ Teams (+ All User Teams)",
+      title: "2.5★ Teams + All Taken Teams",
       description: text,
       color: 0x2b2d31,
       timestamp: new Date()
     };
 
-    // send fresh list
-    try {
-      await channel.send({ embeds: [embed] });
-    } catch (err) {
-      console.error("Error sending team list:", err);
-      return false;
-    }
+    await channel.send({ embeds: [embed] });
+    console.log('[listteams] Posted successfully');
+
     return true;
   } catch (err) {
-    console.error("runListTeamsDisplay error:", err);
+    console.error("[listteams] Error:", err);
     return false;
   }
 }
