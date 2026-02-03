@@ -847,7 +847,9 @@ if (name === 'advance') {
       if (generalChannel) await generalChannel.send({ embeds: [embed] }).catch(e => console.error('general send failed:', e));
 
       const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
-      if (advanceChannel) await advanceChannel.send(`Advanced to Week ${newWeek}`).catch(e => console.error('advance send failed:', e));
+      if (advanceChannel) {
+  const headCoachRoleId = '1463949316702994496';
+    await advanceChannel.send(`<@&${headCoachRoleId}> We have advanced to Week ${newWeek}`).catch(e => console.error('advance send failed:', e));
     }
 
     await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to channels.`);
@@ -877,7 +879,8 @@ if (name === 'advance') {
     if (guild) {
       const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
       if (advanceChannel) {
-        await advanceChannel.send(`We have advanced to Season ${currentSeason + 1}`).catch(() => {});
+        const headCoachRoleId = '1463949316702994496';
+        await advanceChannel.send(`<@&${headCoachRoleId}> We have advanced to Season ${currentSeason + 1}`).catch(() => {});
       }
     }
 
