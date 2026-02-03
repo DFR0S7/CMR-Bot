@@ -1159,7 +1159,7 @@ client.on('messageReactionAdd', async (reaction, user) => {
     if (reaction.message.partial) await reaction.message.fetch();
 
     // only watch for :saluting_face: 
-    if (reaction.emoji.name !== ':saluting_face:') return;
+    if (reaction.emoji.name === 🫡) return;
 
     // optionally restrict to a specific message ID or channel name
     // if you want to restrict to the rules channel, check:
