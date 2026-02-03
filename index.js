@@ -1275,28 +1275,48 @@ if (name === 'advance') {
       await supabase.from('teams').update({ taken_by: coachUserId, taken_by_name: coachName }).eq('id', newTeamId);
 
       const guild = interaction.guild;
-      if (guild) {
-        const teamChannelCategory = guild.channels.cache.find(ch => ch.name === 'Team Channels' && ch.type === ChannelType.GuildCategory);
-        if (teamChannelCategory) {
-          const oldChannel = guild.channels.cache.find(
-            ch => ch.parent?.id === teamChannelCategory.id && ch.name.toLowerCase() === oldTeam.name.toLowerCase()
-          );
-          if (oldChannel) {
-            await oldChannel.setName(newTeam.name);
-          }
-        }
-      }
-
-      await interaction.editReply(
-        `✅ Moved **${coachName}** from **${oldTeam.name}** to **${newTeam.name}**. Channel renamed.`
+    if (guild) {
+      const teamChannelCategory = guild.channels.cache.find(
+        ch => ch.name === 'Team Channels' && ch.type === ChannelType.GuildCategory
       );
-    } catch (err) {
-      console.error('move-coach error:', err);
-      await interaction.editReply(`Error moving coach: ${err.message}`);
-    }
-    return;
-  }
 
+      if (teamChannelCategory) {
+        console.log('[move-coach] Looking for old channel with name:', oldTeam.name);
+
+        // More flexible matching: partial match + normalize
+        const oldChannel = guild.channels.cache.find(ch => {
+          if (ch.parentId !== teamChannelCategory.id) return false;
+          if (ch.type !== ChannelType.GuildText) return false;
+
+          const normalizedOld = oldTeam.name.toLowerCase().replace(/\s+/g, '-');
+          const normalizedCurrent = ch.name.toLowerCase().replace(/\s+/g, '-');
+          return normalizedCurrent.includes(normalizedOld) || normalizedCurrent === normalizedOld;
+        });
+
+        if (oldChannel) {
+          console.log('[move-coach] Found old channel:', oldChannel.name, '(ID:', oldChannel.id, ')');
+          try {
+            await oldChannel.setName(newTeam.name);
+            console.log('[move-coach] Successfully renamed channel to:', newTeam.name);
+          } catch (renameErr) {
+            console.error('[move-coach] Channel rename failed:', renameErr.message);
+          }
+        } else {
+          console.warn('[move-coach] No matching channel found for old team:', oldTeam.name);
+        }
+      } else {
+        console.warn('[move-coach] Team Channels category not found');
+      }
+    }
+
+    return interaction.editReply(
+      `✅ Moved **${coachName}** from **${oldTeam.name}** to **${newTeam.name}**. Channel renamed (if it existed).`
+    );
+  } catch (err) {
+    console.error('move-coach error:', err);
+    return interaction.editReply(`Error moving coach: ${err.message}`);
+  }
+}
   // ───────────────────────────────────────────────
   // Catch-all for unhandled commands
   // ───────────────────────────────────────────────
