@@ -85,8 +85,7 @@ const commands = [
   new SlashCommandBuilder()
     .setName('joboffers')
     .setDescription('Get your CMR Dynasty job offers')
-    .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    .setDMPermission(false),
 
   new SlashCommandBuilder()
     .setName('resetteam')
