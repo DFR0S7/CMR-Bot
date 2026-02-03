@@ -1353,7 +1353,7 @@ client.on('messageCreate', async msg => {
     console.log('[DM] Guild found:', guild.name, '(ID:', guild.id, ')');
 
     // Announce in general
-    const general = guild.channels.cache.find(c => c.name === 'main-chat' && c.isTextBased());
+    const general = guild.channels.cache.find(c => c.name === 'signed-coaches' && c.isTextBased());
     if (general) {
       await general.send(`🏈 <@${userId}> has accepted a job offer from **${team.name}**!`).catch(e => {
         console.error('[DM] General announce failed:', e);
