@@ -767,46 +767,77 @@ client.on('interactionCreate', async interaction => {
   // /advance
   // ───────────────────────────────────────────────
 if (name === 'advance') {
-  console.log('[advance] Started');
+  console.log('[advance] Started for', interaction.user.tag);
 
   if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
     return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
   }
 
   try {
-    console.log('[advance] Fetching week & season...');
+    console.log('[advance] Fetching current week & season...');
     const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
     const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
 
-    const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+    let currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
     const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
-    console.log('[advance] Current:', { week: currentWeek, season: currentSeason });
+    console.log('[advance] Read from DB:', { week: currentWeek, season: currentSeason });
 
-    console.log('[advance] Fetching press releases...');
+    // Advance logic
+    const newWeek = currentWeek + 1;
+    console.log('[advance] Advancing to week', newWeek);
+
+    // Update meta
+    const updateResp = await supabase
+      .from('meta')
+      .update({ value: newWeek })
+      .eq('key', 'current_week')
+      .select(); // return updated value for verification
+
+    if (updateResp.error) throw updateResp.error;
+
+    // Verify update succeeded
+    const updatedWeek = updateResp.data?.[0]?.value;
+    console.log('[advance] DB update result:', { updatedWeek });
+
+    if (updatedWeek !== newWeek) {
+      console.warn('[advance] Update mismatch - expected', newWeek, 'got', updatedWeek);
+    }
+
+    // Build & send summary (your existing logic here)
+    console.log('[advance] Building summary for completed week', currentWeek);
     const { data: pressData } = await supabase
       .from('news_feed')
       .select('text')
       .eq('week', currentWeek)
       .eq('season', currentSeason);
-    console.log('[advance] Press count:', pressData?.length || 0);
 
-    console.log('[advance] Fetching weekly results...');
     const { data: weeklyResults } = await supabase
       .from('results')
       .select('*')
       .eq('season', currentSeason)
       .eq('week', currentWeek);
-    console.log('[advance] Results count:', weeklyResults?.length || 0);
 
-    // Build embed (your existing code here)
     const embed = {
       title: `Weekly Summary – Season ${currentSeason}, Week ${currentWeek}`,
       color: 0x1e90ff,
-      description: 'Your summary content here...',
+      description: '',
       timestamp: new Date()
     };
 
-    console.log('[advance] Sending embeds to channels...');
+    let descriptionParts = [];
+
+    if (pressData?.length > 0) {
+      descriptionParts.push('**Press Releases:**\n' + pressData.map(p => `• ${p.text}`).join('\n'));
+    }
+
+    if (weeklyResults?.length > 0) {
+      descriptionParts.push('**Game Results:**\n' + weeklyResults.map(r => {
+        return `${r.user_team_name} ${r.user_score || '?'} - ${r.opponent_team_name} ${r.opponent_score || '?'}\nSummary: ${r.summary || 'No summary'}`;
+      }).join('\n\n'));
+    }
+
+    embed.description = descriptionParts.length > 0 ? descriptionParts.join('\n\n') : 'No news or results this week.';
+
     const guild = interaction.guild;
     if (guild) {
       const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
@@ -816,22 +847,18 @@ if (name === 'advance') {
       if (generalChannel) await generalChannel.send({ embeds: [embed] }).catch(e => console.error('general send failed:', e));
 
       const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
-      if (advanceChannel) await advanceChannel.send(`Advanced to Week ${currentWeek + 1}`).catch(e => console.error('advance send failed:', e));
+      if (advanceChannel) await advanceChannel.send(`Advanced to Week ${newWeek}`).catch(e => console.error('advance send failed:', e));
     }
 
-    const newWeek = currentWeek + 1;
-    console.log('[advance] Updating meta to week', newWeek);
-    await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
-
-    console.log('[advance] Sending final reply');
-    await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted.`);
+    await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to channels.`);
   } catch (err) {
     console.error('[advance] Error:', err);
     await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
   }
 
-  return;  // ← THIS IS THE MISSING LINE — stops handler from falling through
+  return;  // Ensures handler exits cleanly
 }
+  
   // ───────────────────────────────────────────────
   // /season-advance
   // ───────────────────────────────────────────────
