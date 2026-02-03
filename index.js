@@ -658,12 +658,60 @@ client.on('interactionCreate', async interaction => {
   // ───────────────────────────────────────────────
   // /game-result (example – add your full logic here)
   // ───────────────────────────────────────────────
-  if (name === 'game-result') {
-    // ... your full game-result code ...
-    // At the end:
+ if (name === 'game-result') {
+  let userTeam = null; // Declare early so it's always defined
+  let userTeamErr = null;
+
+  const opponentName = interaction.options.getString('opponent');
+  const userScore = interaction.options.getInteger('your_score');
+  const opponentScore = interaction.options.getInteger('opponent_score');
+  const summary = interaction.options.getString('summary');
+
+  try {
+    console.log('[game-result] Fetching season & week...');
+    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+    const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+    const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+
+    console.log('[game-result] Fetching user team...');
+    const userTeamResp = await supabase.from('teams').select('*').eq('taken_by', interaction.user.id).maybeSingle();
+    userTeam = userTeamResp.data;
+    userTeamErr = userTeamResp.error;
+
+    if (userTeamErr) {
+      console.error('[game-result] User team query error:', userTeamErr);
+      return interaction.editReply({ content: `Error: ${userTeamErr.message}`, flags: 64 });
+    }
+
+    if (!userTeam) {
+      return interaction.editReply({ content: "You don't control a team.", flags: 64 });
+    }
+
+    console.log('[game-result] Checking existing result...');
+    const { data: existingUserResult } = await supabase
+      .from('results')
+      .select('*')
+      .eq('season', currentSeason)
+      .eq('week', currentWeek)
+      .eq('user_team_id', userTeam.id)
+      .maybeSingle();
+
+    if (existingUserResult) {
+      return interaction.editReply({
+        content: `You already submitted a result this week (vs ${existingUserResult.opponent_team_name}). You can only submit one result per week.`,
+        flags: 64
+      });
+    }
+
+    // ... rest of your opponent lookup, insert, records update, box score embed ...
+
     await interaction.editReply({ content: `Result recorded: ${userTeam.name} vs ${opponentTeam.name}` });
-    return;
+  } catch (err) {
+    console.error('[game-result] Full error:', err);
+    await interaction.editReply({ content: `Error processing game result: ${err.message}`, flags: 64 });
   }
+}
 
   // ───────────────────────────────────────────────
   // /any-game-result
@@ -719,36 +767,35 @@ client.on('interactionCreate', async interaction => {
   // /advance
   // ───────────────────────────────────────────────
   if (name === 'advance') {
-  console.log('[advance] Started');
+    console.log('[advance] Permission check...');
+    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
+    }
 
-  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-    return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
-  }
+    try {
+      console.log('[advance] Fetching week & season...');
+      const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+      const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
 
-  try {
-    console.log('[advance] Fetching week & season...');
-    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
-    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+      const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+      console.log('[advance] Current:', { week: currentWeek, season: currentSeason });
 
-    const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
-    const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
-    console.log('[advance] Current:', { week: currentWeek, season: currentSeason });
+      console.log('[advance] Fetching press releases...');
+      const { data: pressData } = await supabase
+        .from('news_feed')
+        .select('text')
+        .eq('week', currentWeek)
+        .eq('season', currentSeason);
+      console.log('[advance] Press count:', pressData?.length || 0);
 
-    console.log('[advance] Fetching press releases...');
-    const { data: pressData } = await supabase
-      .from('news_feed')
-      .select('text')
-      .eq('week', currentWeek)
-      .eq('season', currentSeason);
-    console.log('[advance] Press count:', pressData?.length || 0);
-
-    console.log('[advance] Fetching weekly results...');
-    const { data: weeklyResults } = await supabase
-      .from('results')
-      .select('*')
-      .eq('season', currentSeason)
-      .eq('week', currentWeek);
-    console.log('[advance] Results count:', weeklyResults?.length || 0);
+      console.log('[advance] Fetching weekly results...');
+      const { data: weeklyResults } = await supabase
+        .from('results')
+        .select('*')
+        .eq('season', currentSeason)
+        .eq('week', currentWeek);
+      console.log('[advance] Results count:', weeklyResults?.length || 0);
 
     // ... your embed building, channel sending, etc. logic here ...
     // (add console.log('[advance] Sending embeds...') before sends if you want)
@@ -1195,87 +1242,121 @@ client.on('messageReactionAdd', async (reaction, user) => {
 // DM ACCEPT OFFER (user replies to bot DM with a number)
 // ---------------------------------------------------------
 client.on('messageCreate', async msg => {
+  if (msg.guild || msg.author.bot) return;
+
+  console.log(`[DM] Received from ${msg.author.tag} (${msg.author.id}): "${msg.content.trim()}"`);
+
+  const userId = msg.author.id;
+
+  if (!client.userOffers || !client.userOffers[userId]) {
+    console.log('[DM] No pending offers for user', userId);
+    return;
+  }
+
+  const offers = client.userOffers[userId];
+  console.log('[DM] Found', offers.length, 'pending offers');
+
+  const choiceRaw = msg.content.trim();
+  const choice = parseInt(choiceRaw, 10);
+
+  console.log('[DM] Choice parsed:', { raw: choiceRaw, parsed: choice });
+
+  if (isNaN(choice) || choice < 1 || choice > offers.length) {
+    console.log('[DM] Invalid choice');
+    return msg.reply("Reply with the number of the team you choose (from the DM list).").catch(e => console.error('[DM] Reply failed:', e));
+  }
+
+  const team = offers[choice - 1];
+  console.log('[DM] Selected team:', team.name, '(ID:', team.id, ')');
+
   try {
-    if (msg.guild || msg.author.bot) return;
-
-    const userId = msg.author.id;
-    if (!client.userOffers || !client.userOffers[userId]) return;
-
-    const offers = client.userOffers[userId];
-    const choice = parseInt(msg.content);
-    if (isNaN(choice) || choice < 1 || choice > offers.length) {
-      return msg.editReply("Reply with the number of the team you choose (from the DM list).");
-    }
-
-    const team = offers[choice - 1];
-
-    // Write taken_by and taken_by_name into supabase teams table
+    console.log('[DM] Updating Supabase...');
     const updateResp = await supabase.from('teams').update({
       taken_by: userId,
       taken_by_name: msg.author.username
     }).eq('id', team.id);
 
     if (updateResp.error) {
-      console.error("Failed to claim team:", updateResp.error);
-      return msg.editReply(`Failed to claim ${team.name}: ${updateResp.error.message}`);
+      console.error('[DM] Supabase update failed:', updateResp.error);
+      return msg.reply("Failed to claim the team — database error.").catch(() => {});
     }
 
-    msg.editReply(`You accepted the job offer from **${team.name}**!`);
+    console.log('[DM] Supabase updated successfully');
+
+    // Send confirmation DM FIRST (before guild operations)
+    await msg.reply(`You accepted the job offer from **${team.name}**!`).catch(e => {
+      console.error('[DM] Confirmation reply failed:', e);
+    });
+
     delete client.userOffers[userId];
+    console.log('[DM] Cleared userOffers for', userId);
 
-    // announce in general channel and perform setup
+    // Guild operations
     const guild = client.guilds.cache.first();
-    if (guild) {
-      const general = guild.channels.cache.find(c => c.name === 'main-chat' && c.isTextBased());
-      if (general) general.send(`🏈 <@${userId}> has accepted a job offer from **${team.name}**!`).catch(() => {});
-
-      // Create team-specific channel (named after school name)
-      try {
-        const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
-        // Find or create the Team Channels category
-        let teamChannelsCategory = guild.channels.cache.find(c => c.name === 'Team Channels' && c.type === ChannelType.GuildCategory);
-        if (!teamChannelsCategory) {
-          teamChannelsCategory = await guild.channels.create({
-            name: 'Team Channels',
-            type: ChannelType.GuildCategory
-          });
-        }
-        const newChannel = await guild.channels.create({
-          name: channelName,
-          type: ChannelType.GuildText,
-          parent: teamChannelsCategory.id,
-          reason: `Team channel for ${team.name}`
-        });
-        console.log(`Created channel #${channelName} for ${team.name}`);
-
-        // Send welcome message
-        await newChannel.send(`Welcome to **${team.name}**! <@${userId}> is the Head Coach.`);
-      } catch (err) {
-        console.error(`Failed to create channel for ${team.name}:`, err);
-      }
-
-      // Assign Head Coach role to user
-      try {
-        const member = await guild.members.fetch(userId);
-        let headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
-        if (!headCoachRole) {
-          headCoachRole = await guild.roles.create({
-            name: 'head coach',
-            reason: 'Role for team heads'
-          });
-        }
-        await member.roles.add(headCoachRole, "Claimed team");
-        console.log(`Assigned Head Coach role to ${msg.author.username}`);
-      } catch (err) {
-        console.error(`Failed to assign Head Coach role to ${msg.author.username}:`, err);
-      }
+    if (!guild) {
+      console.error('[DM] No guild found in cache');
+      return;
     }
 
-    // Trigger listteams update
+    console.log('[DM] Guild found:', guild.name, '(ID:', guild.id, ')');
+
+    // Announce in general
+    const general = guild.channels.cache.find(c => c.name === 'main-chat' && c.isTextBased());
+    if (general) {
+      await general.send(`🏈 <@${userId}> has accepted a job offer from **${team.name}**!`).catch(e => {
+        console.error('[DM] General announce failed:', e);
+      });
+    } else {
+      console.warn('[DM] main-chat channel not found');
+    }
+
+    // Create team channel
+    try {
+      const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
+      let teamChannelsCategory = guild.channels.cache.find(c => c.name === 'Team Channels' && c.type === ChannelType.GuildCategory);
+      if (!teamChannelsCategory) {
+        teamChannelsCategory = await guild.channels.create({
+          name: 'Team Channels',
+          type: ChannelType.GuildCategory
+        });
+        console.log('[DM] Created Team Channels category');
+      }
+
+      const newChannel = await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: teamChannelsCategory.id,
+        reason: `Team channel for ${team.name}`
+      });
+      console.log('[DM] Created channel #', channelName);
+
+      await newChannel.send(`Welcome to **${team.name}**! <@${userId}> is the Head Coach.`);
+    } catch (err) {
+      console.error('[DM] Channel creation failed:', err);
+    }
+
+    // Assign Head Coach role
+    try {
+      const member = await guild.members.fetch(userId);
+      let headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
+      if (!headCoachRole) {
+        headCoachRole = await guild.roles.create({
+          name: 'head coach',
+          reason: 'Role for team heads'
+        });
+        console.log('[DM] Created head coach role');
+      }
+      await member.roles.add(headCoachRole, "Claimed team");
+      console.log('[DM] Assigned Head Coach role to', msg.author.tag);
+    } catch (err) {
+      console.error('[DM] Role assignment failed:', err);
+    }
+
     await runListTeamsDisplay();
+    console.log('[DM] Claim flow completed successfully');
   } catch (err) {
-    console.error("DM accept offer error:", err);
-    try { await msg.editReply("An error occurred processing your request."); } catch (e) {}
+    console.error('[DM] Top-level error in claim flow:', err);
+    await msg.reply("An error occurred processing your request.").catch(() => {});
   }
 });
 
