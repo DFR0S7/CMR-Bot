@@ -853,6 +853,7 @@ if (name === 'advance') {
     }
 
     await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to channels.`);
+    }
   } catch (err) {
     console.error('[advance] Error:', err);
     await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
