@@ -766,7 +766,7 @@ client.on('interactionCreate', async interaction => {
   // ───────────────────────────────────────────────
   // /advance
   // ───────────────────────────────────────────────
-  if (name === 'advance') {
+if (name === 'advance') {
   console.log('[advance] Started');
 
   if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -798,14 +798,16 @@ client.on('interactionCreate', async interaction => {
       .eq('week', currentWeek);
     console.log('[advance] Results count:', weeklyResults?.length || 0);
 
-    // ... your embed building logic here ...
-
+    // Build embed (your existing code here)
     const embed = {
-      // ... your embed object ...
+      title: `Weekly Summary – Season ${currentSeason}, Week ${currentWeek}`,
+      color: 0x1e90ff,
+      description: 'Your summary content here...',
+      timestamp: new Date()
     };
 
     console.log('[advance] Sending embeds to channels...');
-    const guild = client.guilds.cache.first();
+    const guild = interaction.guild;
     if (guild) {
       const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
       if (newsChannel) await newsChannel.send({ embeds: [embed] }).catch(e => console.error('news send failed:', e));
@@ -822,13 +824,13 @@ client.on('interactionCreate', async interaction => {
     await supabase.from('meta').update({ value: newWeek }).eq('key', 'current_week');
 
     console.log('[advance] Sending final reply');
-    await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to channels.`);
+    await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted.`);
   } catch (err) {
     console.error('[advance] Error:', err);
     await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
   }
 
-  return;  // ← THIS LINE IS CRITICAL — ensures we exit the handler after handling /advance
+  return;  // ← THIS IS THE MISSING LINE — stops handler from falling through
 }
   // ───────────────────────────────────────────────
   // /season-advance
