@@ -659,8 +659,9 @@ client.on('interactionCreate', async interaction => {
   // /game-result (example – add your full logic here)
   // ───────────────────────────────────────────────
  if (name === 'game-result') {
-  let userTeam = null; // Declare early so it's always defined
-  let userTeamErr = null;
+  console.log('[game-result] Started for', interaction.user.tag);
+
+  let opponentTeam = null; // Declare early so it's always defined
 
   const opponentName = interaction.options.getString('opponent');
   const userScore = interaction.options.getInteger('your_score');
@@ -675,9 +676,11 @@ client.on('interactionCreate', async interaction => {
     const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
 
     console.log('[game-result] Fetching user team...');
-    const userTeamResp = await supabase.from('teams').select('*').eq('taken_by', interaction.user.id).maybeSingle();
-    userTeam = userTeamResp.data;
-    userTeamErr = userTeamResp.error;
+    const { data: userTeam, error: userTeamErr } = await supabase
+      .from('teams')
+      .select('*')
+      .eq('taken_by', interaction.user.id)
+      .maybeSingle();
 
     if (userTeamErr) {
       console.error('[game-result] User team query error:', userTeamErr);
@@ -704,15 +707,39 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // ... rest of your opponent lookup, insert, records update, box score embed ...
+    console.log('[game-result] Looking up opponent team...');
+    // Opponent lookup (your existing try/catch)
+    try {
+      const { data: teamsData, error: teamsErr } = await supabase.from('teams').select('*').limit(1000);
+      if (teamsErr) throw teamsErr;
 
+      const needle = (opponentName || '').toLowerCase().trim();
+      if (teamsData && teamsData.length > 0) {
+        opponentTeam = teamsData.find(t => (t.name || '').toLowerCase() === needle);
+        if (!opponentTeam) opponentTeam = teamsData.find(t => (t.name || '').toLowerCase().includes(needle));
+      }
+    } catch (err) {
+      console.error('[game-result] Opponent lookup error:', err);
+      return interaction.editReply({ content: `Error looking up opponent: ${err.message}`, flags: 64 });
+    }
+
+    if (!opponentTeam) {
+      return interaction.editReply({ content: `Opponent "${opponentName}" not found.`, flags: 64 });
+    }
+
+    console.log('[game-result] Opponent found:', opponentTeam.name);
+
+    // ... rest of your logic: check existing opponent result, insert result, update records, post box score ...
+
+    // Final reply (use opponentTeam safely)
     await interaction.editReply({ content: `Result recorded: ${userTeam.name} vs ${opponentTeam.name}` });
   } catch (err) {
-    console.error('[game-result] Full error:', err);
+    console.error('[game-result] Top-level error:', err);
     await interaction.editReply({ content: `Error processing game result: ${err.message}`, flags: 64 });
   }
-}
 
+  return;  // Ensure handler exits
+}
   // ───────────────────────────────────────────────
   // /any-game-result
   // ───────────────────────────────────────────────
