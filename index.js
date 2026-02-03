@@ -458,87 +458,119 @@ client.on('interactionCreate', async interaction => {
   // ───────────────────────────────────────────────────────
   // 1. Handle autocomplete (no defer needed)
   // ───────────────────────────────────────────────────────
-  if (interaction.isAutocomplete()) {
-    const focused = interaction.options.getFocused(true);
+ if (interaction.isAutocomplete()) {
+  const focused = interaction.options.getFocused(true);
 
-    // /game-result opponent
-    if (focused.name === 'opponent') {
-      const search = (focused.value || '').toLowerCase();
-      try {
-        const { data: teamsData, error } = await supabase.from('teams').select('name').limit(200);
-        if (error) throw error;
-        const list = (teamsData || []).map(r => r.name).filter(n => n.toLowerCase().includes(search));
-        list.sort((a, b) => a.localeCompare(b));
-        await interaction.respond(list.slice(0, 25).map(n => ({ name: n, value: n })));
-      } catch (err) {
-        console.error('Autocomplete /opponent error:', err);
-        await interaction.respond([]).catch(() => {});
+  // Helper to respond safely (prevents double-respond errors)
+  const safeRespond = async (choices) => {
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.respond(choices);
       }
-      return;
-    }
-
-    // /move-coach coach
-    if (focused.name === 'coach') {
-      const search = (focused.value || '').toLowerCase();
-      try {
-        const { data: teamsData, error } = await supabase
-          .from('teams')
-          .select('taken_by_name')
-          .not('taken_by', 'is', null)
-          .limit(200);
-        if (error) throw error;
-        const coachList = (teamsData || []).map(r => r.taken_by_name).filter(n => n && n.toLowerCase().includes(search));
-        const uniqueCoaches = [...new Set(coachList)];
-        uniqueCoaches.sort((a, b) => a.localeCompare(b));
-        await interaction.respond(uniqueCoaches.slice(0, 25).map(n => ({ name: n, value: n })));
-      } catch (err) {
-        console.error('Autocomplete /coach error:', err);
-        await interaction.respond([]).catch(() => {});
+    } catch (err) {
+      if (err.code !== 40060 && err.code !== 10062) { // ignore already-acked or expired
+        console.error('Autocomplete respond error:', err);
       }
-      return;
     }
+  };
 
-    // /move-coach new_team
-    if (focused.name === 'new_team') {
-      const search = (focused.value || '').toLowerCase();
-      try {
-        const { data: teamsData, error } = await supabase
-          .from('teams')
-          .select('id, name, taken_by_name')
-          .limit(200);
-        if (error) throw error;
-        const list = (teamsData || []).filter(t => t.name.toLowerCase().includes(search)).map(t => {
-          const status = t.taken_by_name ? ` (${t.taken_by_name})` : ' (available)';
-          return { name: `${t.name}${status}`, value: t.id };
-        });
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        await interaction.respond(list.slice(0, 25));
-      } catch (err) {
-        console.error('Autocomplete /new_team error:', err);
-        await interaction.respond([]).catch(() => {});
-      }
-      return;
+  // /game-result opponent
+  if (focused.name === 'opponent') {
+    const search = (focused.value || '').toLowerCase().trim();
+    try {
+      const { data: teamsData, error } = await supabase
+        .from('teams')
+        .select('name')
+        .ilike('name', `%${search}%`) // faster case-insensitive search
+        .limit(50); // reduce load
+
+      if (error) throw error;
+
+      const list = (teamsData || []).map(r => r.name).slice(0, 25);
+      list.sort((a, b) => a.localeCompare(b));
+
+      await safeRespond(list.map(n => ({ name: n, value: n })));
+    } catch (err) {
+      console.error('Autocomplete /opponent error:', err);
+      await safeRespond([]); // return empty to avoid Discord timeout
     }
-
-    // /any-game-result home_team & away_team
-    if (focused.name === 'home_team' || focused.name === 'away_team') {
-      const search = (focused.value || '').toLowerCase();
-      try {
-        const { data: teamsData, error } = await supabase.from('teams').select('name').limit(200);
-        if (error) throw error;
-        const list = (teamsData || []).map(r => r.name).filter(n => n.toLowerCase().includes(search));
-        list.sort((a, b) => a.localeCompare(b));
-        await interaction.respond(list.slice(0, 25).map(n => ({ name: n, value: n })));
-      } catch (err) {
-        console.error('Autocomplete any-game-result error:', err);
-        await interaction.respond([]).catch(() => {});
-      }
-      return;
-    }
-
     return;
   }
 
+  // /move-coach coach
+  if (focused.name === 'coach') {
+    const search = (focused.value || '').toLowerCase().trim();
+    try {
+      const { data: teamsData, error } = await supabase
+        .from('teams')
+        .select('taken_by_name')
+        .not('taken_by', 'is', null)
+        .ilike('taken_by_name', `%${search}%`)
+        .limit(50);
+
+      if (error) throw error;
+
+      const coachList = (teamsData || []).map(r => r.taken_by_name).filter(Boolean);
+      const uniqueCoaches = [...new Set(coachList)].sort((a, b) => a.localeCompare(b));
+
+      await safeRespond(uniqueCoaches.slice(0, 25).map(n => ({ name: n, value: n })));
+    } catch (err) {
+      console.error('Autocomplete /coach error:', err);
+      await safeRespond([]);
+    }
+    return;
+  }
+
+  // /move-coach new_team
+  if (focused.name === 'new_team') {
+    const search = (focused.value || '').toLowerCase().trim();
+    try {
+      const { data: teamsData, error } = await supabase
+        .from('teams')
+        .select('id, name, taken_by_name')
+        .ilike('name', `%${search}%`)
+        .limit(50);
+
+      if (error) throw error;
+
+      const list = (teamsData || []).map(t => {
+        const status = t.taken_by_name ? ` (${t.taken_by_name})` : ' (available)';
+        return { name: `${t.name}${status}`, value: t.id };
+      }).sort((a, b) => a.name.localeCompare(b.name));
+
+      await safeRespond(list.slice(0, 25));
+    } catch (err) {
+      console.error('Autocomplete /new_team error:', err);
+      await safeRespond([]);
+    }
+    return;
+  }
+
+  // /any-game-result home_team & away_team
+  if (focused.name === 'home_team' || focused.name === 'away_team') {
+    const search = (focused.value || '').toLowerCase().trim();
+    try {
+      const { data: teamsData, error } = await supabase
+        .from('teams')
+        .select('name')
+        .ilike('name', `%${search}%`)
+        .limit(50);
+
+      if (error) throw error;
+
+      const list = (teamsData || []).map(r => r.name).sort((a, b) => a.localeCompare(b));
+
+      await safeRespond(list.slice(0, 25).map(n => ({ name: n, value: n })));
+    } catch (err) {
+      console.error('Autocomplete any-game-result error:', err);
+      await safeRespond([]);
+    }
+    return;
+  }
+
+  // Fallback: respond empty if no match
+  await safeRespond([]);
+}
   // ───────────────────────────────────────────────────────
   // 2. IMMEDIATELY defer ALL slash commands (prevents 10062 timeout)
   // ───────────────────────────────────────────────────────
