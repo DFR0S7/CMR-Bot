@@ -761,17 +761,110 @@ client.on('interactionCreate', async interaction => {
 
     console.log('[game-result] Opponent found:', opponentTeam.name);
 
-    // ... rest of your logic: check existing opponent result, insert result, update records, post box score ...
+    // Check if opponent already submitted this matchup (if user-controlled)
+    const isOpponentUserControlled = opponentTeam.taken_by != null;
+    if (isOpponentUserControlled) {
+      const { data: existingOpponentResult } = await supabase
+        .from('results')
+        .select('*')
+        .eq('season', currentSeason)
+        .eq('week', currentWeek)
+        .eq('user_team_id', opponentTeam.id)
+        .eq('opponent_team_id', userTeam.id)
+        .maybeSingle();
 
-    // Final reply (use opponentTeam safely)
-    await interaction.editReply({ content: `Result recorded: ${userTeam.name} vs ${opponentTeam.name}` });
+      if (existingOpponentResult) {
+        return interaction.editReply({
+          content: `${opponentTeam.name} already submitted this game result. Only the home team can enter the result.`,
+          flags: 64
+        });
+      }
+    }
+
+    const resultText = userScore > opponentScore ? 'W' : 'L';
+
+    console.log('[game-result] Inserting result...');
+    const insertResp = await supabase.from('results').insert([{
+      season: currentSeason,
+      week: currentWeek,
+      user_team_id: userTeam.id,
+      user_team_name: userTeam.name,
+      opponent_team_id: opponentTeam.id,
+      opponent_team_name: opponentTeam.name,
+      user_score: userScore,
+      opponent_score: opponentScore,
+      summary,
+      result: resultText,
+      taken_by: userTeam.taken_by,
+      taken_by_name: userTeam.taken_by_name || interaction.user.username
+    }]);
+
+    if (insertResp.error) {
+      console.error('[game-result] Insert error:', insertResp.error);
+      return interaction.editReply({ content: `Failed to save result: ${insertResp.error.message}`, flags: 64 });
+    }
+// Post box score to news-feed
+    console.log('[game-result] Posting to news-feed...');
+    const guild = interaction.guild;
+    if (guild) {
+      const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
+      if (newsChannel) {
+        // Optional: fetch updated record for display
+        const recordResp = await supabase
+          .from('records')
+          .select('wins, losses')
+          .eq('season', currentSeason)
+          .eq('team_id', userTeam.id)
+          .maybeSingle();
+
+        const wins = recordResp.data?.wins || 0;
+        const losses = recordResp.data?.losses || 0;
+        let recordText = `Record: ${userTeam.name} ${wins}-${losses}`;
+
+        if (isOpponentUserControlled) {
+          const oppRecordResp = await supabase
+            .from('records')
+            .select('wins, losses')
+            .eq('season', currentSeason)
+            .eq('team_id', opponentTeam.id)
+            .maybeSingle();
+
+          const oppWins = oppRecordResp.data?.wins || 0;
+          const oppLosses = oppRecordResp.data?.losses || 0;
+          recordText += `, ${opponentTeam.name} ${oppWins}-${oppLosses}`;
+        }
+
+        const boxScoreText = 
+          `${userTeam.name.padEnd(20)} ${userScore}\n` +
+          `${opponentTeam.name.padEnd(20)} ${opponentScore}\n` +
+          `${recordText}\n` +
+          `Summary: ${summary || 'No summary provided'}`;
+
+        const resultEmbed = {
+          title: `Game Result: ${userTeam.name} vs ${opponentTeam.name}`,
+          color: resultText === 'W' ? 0x00ff00 : 0xff0000,
+          description: boxScoreText,
+          timestamp: new Date()
+        };
+
+        await newsChannel.send({ embeds: [resultEmbed] }).catch(e => {
+          console.error('[game-result] News-feed post failed:', e);
+        });
+      } else {
+        console.warn('[game-result] news-feed channel not found');
+      }
+    }
+
+    // Final reply to user
+    await interaction.editReply({ content: `Result recorded and posted to #news-feed: ${userTeam.name} vs ${opponentTeam.name}` });
   } catch (err) {
     console.error('[game-result] Top-level error:', err);
     await interaction.editReply({ content: `Error processing game result: ${err.message}`, flags: 64 });
   }
 
-  return;  // Ensure handler exits
+  return;
 }
+
   // ───────────────────────────────────────────────
   // /any-game-result
   // ───────────────────────────────────────────────
