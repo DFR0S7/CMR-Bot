@@ -1018,29 +1018,59 @@ if (name === 'advance') {
   // /season-advance
   // ───────────────────────────────────────────────
   if (name === 'season-advance') {
-    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.editReply({ content: "Only the commissioner can advance the season.", flags: 64 });
-    }
+  console.log('[season-advance] Started');
 
-    const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
-    const currentSeason = seasonResp.data?.value ? Number(seasonResp.data.value) : 1;
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can advance the season.", flags: 64 });
+  }
 
-    await supabase.from('meta').update({ value: currentSeason + 1 }).eq('key','current_season');
-    await supabase.from('meta').update({ value: 0 }).eq('key','current_week');
+  try {
+    console.log('[season-advance] Fetching current season...');
+    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+    let currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+    console.log('[season-advance] Current season:', currentSeason);
 
-    const guild = client.guilds.cache.first();
+    const newSeason = currentSeason + 1;
+    console.log('[season-advance] Advancing to season', newSeason);
+
+    // Update season
+    const seasonUpdate = await supabase
+      .from('meta')
+      .update({ value: newSeason })
+      .eq('key', 'current_season');
+    if (seasonUpdate.error) throw seasonUpdate.error;
+
+    // Reset week to 0
+    const weekUpdate = await supabase
+      .from('meta')
+      .update({ value: 0 })
+      .eq('key', 'current_week');
+    if (weekUpdate.error) throw weekUpdate.error;
+
+    console.log('[season-advance] DB updates successful');
+
+    // Announce
+    const guild = interaction.guild;
     if (guild) {
       const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
       if (advanceChannel) {
-        const headCoachRoleId = '1463949316702994496';
-        await advanceChannel.send(`<@&${headCoachRoleId}> We have advanced to Season ${currentSeason + 1}`).catch(() => {});
+         const headCoachRoleId = '1463949316702994496';
+        await advanceChannel.send(`<@&${headCoachRoleId}> We have advanced to Season ${newSeason}! Week reset to 0.`).catch(e => {
+          console.error('[season-advance] Announce failed:', e);
+        });
+      } else {
+        console.warn('[season-advance] advance-tracker channel not found');
       }
     }
 
-    await interaction.editReply({ content: `Season advanced to ${currentSeason + 1}, week reset to 0.` });
-    return;
+    await interaction.editReply(`Season advanced to **${newSeason}**, week reset to 0.`);
+  } catch (err) {
+    console.error('[season-advance] Error:', err);
+    await interaction.editReply({ content: `Error advancing season: ${err.message}`, flags: 64 });
   }
 
+  return;
+}
     // ---------------------------
     // /ranking (current season)
     // ---------------------------
