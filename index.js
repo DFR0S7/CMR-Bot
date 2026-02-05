@@ -698,7 +698,7 @@ client.on('interactionCreate', async interaction => {
   }
 
   // ───────────────────────────────────────────────
-  // /game-result (example – add your full logic here)
+  // /game-result 
   // ───────────────────────────────────────────────
  if (name === 'game-result') {
   console.log('[game-result] Started for', interaction.user.tag);
@@ -1192,290 +1192,286 @@ if (name === 'advance') {
     // /ranking (current season)
     // ---------------------------
     if (name === 'ranking') {
-    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.editReply({ content: "Only the commissioner can view rankings.", flags: 64 });
-    }
+  console.log('[ranking] Started');
 
-    const isPublic = interaction.options.getBoolean('public') || false;
-
-    try {
-      const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
-      const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
-      
-        // Fetch current users (only those with teams)
-        const { data: currentUsers, error: usersErr } = await supabase.from('teams').select('taken_by').not('taken_by', 'is', null);
-        if (usersErr) throw usersErr;
-        const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
-
-        // Filter records to only include current users
-        const filteredRecords = (records || []).filter(r => currentUserIds.has(r.taken_by));
-
-        // Fetch all user vs user results for H2H tiebreaking
-        const { data: results, error: resultsErr } = await supabase.from('results').select('*').eq('season', currentSeason);
-        if (resultsErr) throw resultsErr;
-
-        // Build map of H2H records: "userA_vs_userB" => wins for userA
-        const h2hMap = {};
-        if (results) {
-          for (const r of results) {
-            // Only count user vs user matches
-            if (r.taken_by && r.opponent_team_id) {
-              // Try to find opponent's taken_by from records
-              const oppRecord = (records || []).find(rec => rec.team_id === r.opponent_team_id);
-              if (oppRecord && oppRecord.taken_by) {
-                const key = `${r.taken_by}_vs_${oppRecord.taken_by}`;
-                if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
-                if (r.result === 'W') h2hMap[key].wins++;
-                else h2hMap[key].losses++;
-              }
-            }
-          }
-        }
-
-        // Helper to calculate H2H win% between two users
-        const getH2HWinPct = (userAId, userBId) => {
-          const key = `${userAId}_vs_${userBId}`;
-          if (!h2hMap[key]) return 0;
-          const { wins, losses } = h2hMap[key];
-          return (wins + losses) > 0 ? wins / (wins + losses) : 0;
-        };
-
-        // Sort by: total wins (unless within 1 win, then win%), then user-vs-user win%, then H2H win%
-        const sorted = filteredRecords.sort((a, b) => {
-          // First: check if wins are within 1 of each other
-          const winDiff = Math.abs(a.wins - b.wins);
-          
-          if (winDiff <= 1) {
-            // Within 1 win: use win percentage as primary
-            const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
-            const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
-            if (aWinPct !== bWinPct) return bWinPct - aWinPct;
-          } else {
-            // More than 1 win difference: use total wins
-            return b.wins - a.wins;
-          }
-
-          // Third: user-vs-user win percentage (descending)
-          const aUserPct = (a.user_wins + a.user_losses) > 0 ? a.user_wins / (a.user_wins + a.user_losses) : 0;
-          const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
-          if (aUserPct !== bUserPct) return bUserPct - aUserPct;
-
-          // Fourth: H2H tiebreaker (between the two users)
-          const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
-          const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
-          if (aH2H !== bH2H) return bH2H - aH2H;
-
-          // Fallback: stability
-          return 0;
-        });
-
-        // Build embed description (3 lines per team for mobile-friendly display)
-        let description = '';
-        for (let i = 0; i < sorted.length; i++) {
-          const r = sorted[i];
-          const rank = i + 1;
-          const record = `${r.wins}-${r.losses}`;
-          const userRecord = `${r.user_wins}-${r.user_losses}`;
-          const displayName = r.taken_by_name || r.team_name;
-          const teamName = r.team_name;
-          
-          // Format (3 lines per entry):
-          // 1.  DisplayName
-          //     Team Name
-          //     10-2 (8-1)
-          description += `${rank.toString().padStart(2, ' ')}.  ${displayName}\n`;
-          description += `    ${teamName}\n`;
-          description += `    ${record} (${userRecord})\n\n`;
-        }
-
-        if (!description) description = 'No user teams found.';
-        else description += `*Record in parentheses is vs user teams only*`;
-
-        const embed = {
-          title: `🏆 CMR Dynasty Rankings – Season ${currentSeason}`,
-          description: '```\n' + description + '\n```',
-          color: 0xffd700,
-          timestamp: new Date()
-        };
-
-        if (isPublic) {
-        const generalChannel = interaction.guild.channels.cache.find(ch => ch.name === 'main-chat');
-        if (generalChannel) {
-          await generalChannel.send({ embeds: [embed] });
-          return interaction.editReply({ content: 'Rankings posted to #general.' });
-        }
-      } else {
-        return interaction.editReply({ embeds: [embed] });
-      }
-    } catch (err) {
-      console.error('ranking error:', err);
-      await interaction.editReply(`Error generating rankings: ${err.message}`);
-    }
-    return;
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can view rankings.", flags: 64 });
   }
 
+  const isPublic = interaction.options.getBoolean('public') || false;
+
+  try {
+    console.log('[ranking] Fetching current season...');
+    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+    const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+
+    console.log('[ranking] Fetching season records...');
+    const { data: records, error: recordsErr } = await supabase
+      .from('records')
+      .select('*')
+      .eq('season', currentSeason);
+
+    if (recordsErr) throw recordsErr;
+
+    console.log('[ranking] Fetched', records?.length || 0, 'records');
+
+    const { data: currentUsers, error: usersErr } = await supabase
+      .from('teams')
+      .select('taken_by')
+      .not('taken_by', 'is', null);
+
+    if (usersErr) throw usersErr;
+
+    const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
+
+    const filteredRecords = (records || []).filter(r => currentUserIds.has(r.taken_by));
+
+    console.log('[ranking] Filtered to', filteredRecords.length, 'active user records');
+
+    const { data: results, error: resultsErr } = await supabase
+      .from('results')
+      .select('*')
+      .eq('season', currentSeason);
+
+    if (resultsErr) throw resultsErr;
+
+    const h2hMap = {};
+    if (results) {
+      for (const r of results) {
+        if (r.taken_by && r.opponent_team_id) {
+          const oppRecord = records.find(rec => rec.team_id === r.opponent_team_id);
+          if (oppRecord && oppRecord.taken_by) {
+            const key = `${r.taken_by}_vs_${oppRecord.taken_by}`;
+            if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
+            if (r.result === 'W') h2hMap[key].wins++;
+            else h2hMap[key].losses++;
+          }
+        }
+      }
+    }
+
+    const getH2HWinPct = (userAId, userBId) => {
+      const key = `${userAId}_vs_${userBId}`;
+      if (!h2hMap[key]) return 0;
+      const { wins, losses } = h2hMap[key];
+      return (wins + losses) > 0 ? wins / (wins + losses) : 0;
+    };
+
+    const sorted = filteredRecords.sort((a, b) => {
+      const winDiff = Math.abs(a.wins - b.wins);
+
+      if (winDiff <= 1) {
+        const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
+        const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
+        if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+      } else {
+        return b.wins - a.wins;
+      }
+
+      const aUserPct = (a.user_wins + a.user_losses) > 0 ? a.user_wins / (a.user_wins + a.user_losses) : 0;
+      const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
+      if (aUserPct !== bUserPct) return bUserPct - aUserPct;
+
+      const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
+      const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
+      if (aH2H !== bH2H) return bH2H - aH2H;
+
+      return 0;
+    });
+
+    let description = '';
+    for (let i = 0; i < sorted.length; i++) {
+      const r = sorted[i];
+      const rank = i + 1;
+      const record = `${r.wins}-${r.losses}`;
+      const userRecord = `${r.user_wins}-${r.user_losses}`;
+      const displayName = r.taken_by_name || r.team_name;
+      const teamName = r.team_name;
+
+      description += `${rank.toString().padStart(2, ' ')}. ${displayName}\n`;
+      description += ` ${teamName}\n`;
+      description += ` ${record} (${userRecord})\n\n`;
+    }
+
+    if (!description) description = 'No user teams found.';
+    else description += `*Record in parentheses is vs user teams only*`;
+
+    const embed = {
+      title: `🏆 CMR Dynasty Rankings – Season ${currentSeason}`,
+      description: '```\n' + description + '\n```',
+      color: 0xffd700,
+      timestamp: new Date()
+    };
+
+    if (isPublic) {
+      const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'main-chat');
+      if (generalChannel) {
+        await generalChannel.send({ embeds: [embed] });
+        return interaction.editReply({ content: 'Rankings posted to #main-chat.' });
+      } else {
+        return interaction.editReply({ content: 'Error: Could not find #main-chat channel.' });
+      }
+    } else {
+      return interaction.editReply({ embeds: [embed] });
+    }
+  } catch (err) {
+    console.error('ranking error:', err);
+    await interaction.editReply({ content: `Error generating rankings: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}
     // ---------------------------
     // /ranking-all-time
     // ---------------------------
     if (name === 'ranking-all-time') {
-      if (!interaction.member || !interaction.member.permissions || !interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
-        return interaction.editReply({ flags: 64, content: "Only the commissioner can view rankings." });
-      }
+  console.log('[ranking-all-time] Started');
 
-      const isPublic = interaction.options.getBoolean('public') || false;
-      try {
-        await interaction.deferReply({ flags: isPublic ? 0 : 64 }); // 64 = ephemeral
-      } catch (err) {
-        console.error("Failed to defer /ranking-all-time reply (interaction may have expired):", err);
-        return;
-      }
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can view all-time rankings.", flags: 64 });
+  }
 
-      try {
-        // Fetch all records (all seasons) and aggregate by user
-        const { data: allRecords, error: recordsErr } = await supabase.from('records').select('*');
-        if (recordsErr) throw recordsErr;
+  const isPublic = interaction.options.getBoolean('public') || false;
 
-        // Fetch all results (all seasons) for H2H
-        const { data: results, error: resultsErr } = await supabase.from('results').select('*');
-        if (resultsErr) throw resultsErr;
+  try {
+    console.log('[ranking-all-time] Fetching all records...');
+    const { data: allRecords, error: recordsErr } = await supabase.from('records').select('*');
+    if (recordsErr) throw recordsErr;
 
-        // Build map of H2H records by user
-        const h2hMap = {};
-        if (results) {
-          for (const r of results) {
-            if (r.taken_by) {
-              // Try to find opponent's taken_by from records
-              const oppRecord = (allRecords || []).find(rec => rec.team_id === r.opponent_team_id);
-              if (oppRecord && oppRecord.taken_by) {
-                const key = `${r.taken_by}_vs_${oppRecord.taken_by}`;
-                if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
-                if (r.result === 'W') h2hMap[key].wins++;
-                else h2hMap[key].losses++;
-              }
-            }
+    console.log('[ranking-all-time] Fetched', allRecords?.length || 0, 'total records');
+
+    console.log('[ranking-all-time] Fetching all results for H2H...');
+    const { data: results, error: resultsErr } = await supabase.from('results').select('*');
+    if (resultsErr) throw resultsErr;
+
+    // Build H2H map
+    const h2hMap = {};
+    if (results) {
+      for (const r of results) {
+        if (r.taken_by && r.opponent_team_id) {
+          const oppRecord = allRecords.find(rec => rec.team_id === r.opponent_team_id);
+          if (oppRecord && oppRecord.taken_by) {
+            const key = `${r.taken_by}_vs_${oppRecord.taken_by}`;
+            if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
+            if (r.result === 'W') h2hMap[key].wins++;
+            else h2hMap[key].losses++;
           }
         }
-
-        // Helper to calculate H2H win%
-        const getH2HWinPct = (userAId, userBId) => {
-          const key = `${userAId}_vs_${userBId}`;
-          if (!h2hMap[key]) return 0;
-          const { wins, losses } = h2hMap[key];
-          return (wins + losses) > 0 ? wins / (wins + losses) : 0;
-        };
-
-        // Fetch current users (only those with teams) and their current team names
-        const { data: currentUsers, error: usersErr } = await supabase.from('teams').select('taken_by, name').not('taken_by', 'is', null);
-        if (usersErr) throw usersErr;
-        const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
-        
-        // Create a map of userId -> current team name
-        const userTeamMap = {};
-        if (currentUsers) {
-          for (const u of currentUsers) {
-            userTeamMap[u.taken_by] = u.name;
-          }
-        }
-
-        // Aggregate records by user (sum across all seasons) - only for current users
-        const userAggregates = {};
-        if (allRecords) {
-          for (const r of allRecords) {
-            const userId = r.taken_by;
-            // Only include users who currently have a team
-            if (!currentUserIds.has(userId)) continue;
-            
-            if (!userAggregates[userId]) {
-              userAggregates[userId] = {
-                taken_by: userId,
-                taken_by_name: r.taken_by_name || 'Unknown',
-                team_name: userTeamMap[userId] || 'No Team',
-                wins: 0,
-                losses: 0,
-                user_wins: 0,
-                user_losses: 0
-              };
-            }
-            userAggregates[userId].wins += r.wins;
-            userAggregates[userId].losses += r.losses;
-            userAggregates[userId].user_wins += r.user_wins;
-            userAggregates[userId].user_losses += r.user_losses;
-          }
-        }
-
-        // Sort by: total wins (unless within 1 win, then win%), then user-vs-user win%, then H2H
-        const sorted = Object.values(userAggregates).sort((a, b) => {
-          // First: check if wins are within 1 of each other
-          const winDiff = Math.abs(a.wins - b.wins);
-          
-          if (winDiff <= 1) {
-            // Within 1 win: use win percentage as primary
-            const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
-            const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
-            if (aWinPct !== bWinPct) return bWinPct - aWinPct;
-          } else {
-            // More than 1 win difference: use total wins
-            return b.wins - a.wins;
-          }
-
-          // Third: user-vs-user win percentage (descending)
-          const aUserPct = (a.user_wins + a.user_losses) > 0 ? a.user_wins / (a.user_wins + a.user_losses) : 0;
-          const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
-          if (aUserPct !== bUserPct) return bUserPct - aUserPct;
-
-          // Fourth: H2H tiebreaker
-          const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
-          const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
-          if (aH2H !== bH2H) return bH2H - aH2H;
-
-          return 0;
-        });
-
-        // Build embed (3 lines per user for mobile-friendly display)
-        let description = '';
-        for (let i = 0; i < sorted.length; i++) {
-          const r = sorted[i];
-          const rank = i + 1;
-          const record = `${r.wins}-${r.losses}`;
-          const userRecord = `${r.user_wins}-${r.user_losses}`;
-          const displayName = r.taken_by_name || 'Unknown';
-          const teamName = r.team_name || 'No Team';
-          
-          // Format (3 lines per entry):
-          // 1.  DisplayName
-          //     Team Name
-          //     50-20 (45-15)
-          description += `${rank.toString().padStart(2, ' ')}. ${displayName}\n`;
-          description += `    ${teamName}\n`;
-          description += `    ${record} (${userRecord})\n\n`;
-        }
-
-        if (!description) description = 'No user teams found.';
-        else description += `*Record in parentheses is vs user teams only*`;
-
-        const embed = {
-          title: `👑 CMR Dynasty All-Time Rankings`,
-          description: '```\n' + description + '\n```',
-          color: 0xffd700,
-          timestamp: new Date()
-        };
-
-        if (isPublic) {
-          const generalChannel = interaction.guild.channels.cache.find(ch => ch.name === 'main-chat');
-          if (generalChannel && generalChannel.isTextBased()) {
-            await generalChannel.send({ embeds: [embed] });
-            return interaction.editReply({ content: 'All-time rankings posted to #general.' });
-          } else {
-            return interaction.editReply({ content: 'Error: Could not find #general channel.' });
-          }
-        } else {
-          return interaction.editReply({ embeds: [embed] });
-        }
-      } catch (err) {
-        console.error('ranking-all-time command error:', err);
-        return interaction.editReply(`Error generating all-time rankings: ${err.message}`);
       }
     }
+
+    const getH2HWinPct = (userAId, userBId) => {
+      const key = `${userAId}_vs_${userBId}`;
+      if (!h2hMap[key]) return 0;
+      const { wins, losses } = h2hMap[key];
+      return (wins + losses) > 0 ? wins / (wins + losses) : 0;
+    };
+
+    console.log('[ranking-all-time] Fetching current active coaches...');
+    const { data: currentUsers, error: usersErr } = await supabase
+      .from('teams')
+      .select('taken_by, name')
+      .not('taken_by', 'is', null);
+
+    if (usersErr) throw usersErr;
+
+    const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
+    const userTeamMap = {};
+    (currentUsers || []).forEach(u => {
+      userTeamMap[u.taken_by] = u.name;
+    });
+
+    console.log('[ranking-all-time] Aggregating records for', currentUserIds.size, 'active users');
+
+    const userAggregates = {};
+    if (allRecords) {
+      for (const r of allRecords) {
+        const userId = r.taken_by;
+        if (!currentUserIds.has(userId)) continue;
+
+        if (!userAggregates[userId]) {
+          userAggregates[userId] = {
+            taken_by: userId,
+            taken_by_name: r.taken_by_name || 'Unknown',
+            team_name: userTeamMap[userId] || 'No Team',
+            wins: 0,
+            losses: 0,
+            user_wins: 0,
+            user_losses: 0
+          };
+        }
+
+        userAggregates[userId].wins += r.wins || 0;
+        userAggregates[userId].losses += r.losses || 0;
+        userAggregates[userId].user_wins += r.user_wins || 0;
+        userAggregates[userId].user_losses += r.user_losses || 0;
+      }
+    }
+
+    const sorted = Object.values(userAggregates).sort((a, b) => {
+      const winDiff = Math.abs(a.wins - b.wins);
+
+      if (winDiff <= 1) {
+        const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
+        const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
+        if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+      } else {
+        return b.wins - a.wins;
+      }
+
+      const aUserPct = (a.user_wins + a.user_losses) > 0 ? a.user_wins / (a.user_wins + a.user_losses) : 0;
+      const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
+      if (aUserPct !== bUserPct) return bUserPct - aUserPct;
+
+      const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
+      const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
+      if (aH2H !== bH2H) return bH2H - aH2H;
+
+      return 0;
+    });
+
+    let description = '';
+    for (let i = 0; i < sorted.length; i++) {
+      const r = sorted[i];
+      const rank = i + 1;
+      const record = `${r.wins}-${r.losses}`;
+      const userRecord = `${r.user_wins}-${r.user_losses}`;
+      const displayName = r.taken_by_name || 'Unknown';
+      const teamName = r.team_name || 'No Team';
+
+      description += `${rank.toString().padStart(2, ' ')}. ${displayName}\n`;
+      description += ` ${teamName}\n`;
+      description += ` ${record} (${userRecord})\n\n`;
+    }
+
+    if (!description) description = 'No user teams found across all seasons.';
+    else description += `\n*Record in parentheses is vs user teams only*`;
+
+    const embed = {
+      title: `👑 CMR Dynasty All-Time Rankings`,
+      description: '```\n' + description + '\n```',
+      color: 0xffd700,
+      timestamp: new Date()
+    };
+
+    if (isPublic) {
+      const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'main-chat');
+      if (generalChannel) {
+        await generalChannel.send({ embeds: [embed] }).catch(e => console.error('Public rankings send failed:', e));
+        return interaction.editReply({ content: 'All-time rankings posted to #main-chat.' });
+      } else {
+        return interaction.editReply({ content: 'Error: Could not find #main-chat channel.' });
+      }
+    } else {
+      return interaction.editReply({ embeds: [embed] });
+    }
+  } catch (err) {
+    console.error('ranking-all-time error:', err);
+    await interaction.editReply({ content: `Error generating all-time rankings: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}
 
     // ---------------------------
     // /move-coach
