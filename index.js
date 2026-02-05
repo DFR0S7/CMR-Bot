@@ -134,7 +134,7 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addBooleanOption(opt => opt
       .setName('public')
-      .setDescription('Post to #general (default: private)')
+      .setDescription('Post to #news-feed (default: private)')
       .setRequired(false)),
 
   new SlashCommandBuilder()
@@ -144,7 +144,7 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addBooleanOption(opt => opt
       .setName('public')
-      .setDescription('Post to #general (default: private)')
+      .setDescription('Post to #news-feed (default: private)')
       .setRequired(false)),
 
   new SlashCommandBuilder()
@@ -1304,12 +1304,12 @@ if (name === 'advance') {
     };
 
     if (isPublic) {
-      const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'main-chat');
+      const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'news-feed');
       if (generalChannel) {
         await generalChannel.send({ embeds: [embed] });
-        return interaction.editReply({ content: 'Rankings posted to #main-chat.' });
+        return interaction.editReply({ content: 'Rankings posted to #news-feed.' });
       } else {
-        return interaction.editReply({ content: 'Error: Could not find #main-chat channel.' });
+        return interaction.editReply({ content: 'Error: Could not find #news-feed channel.' });
       }
     } else {
       return interaction.editReply({ embeds: [embed] });
@@ -1455,12 +1455,12 @@ if (name === 'advance') {
     };
 
     if (isPublic) {
-      const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'main-chat');
+      const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'news-feed');
       if (generalChannel) {
         await generalChannel.send({ embeds: [embed] }).catch(e => console.error('Public rankings send failed:', e));
-        return interaction.editReply({ content: 'All-time rankings posted to #main-chat.' });
+        return interaction.editReply({ content: 'All-time rankings posted to #news-feed.' });
       } else {
-        return interaction.editReply({ content: 'Error: Could not find #main-chat channel.' });
+        return interaction.editReply({ content: 'Error: Could not find #news-feed channel.' });
       }
     } else {
       return interaction.editReply({ embeds: [embed] });
