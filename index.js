@@ -474,33 +474,40 @@ client.on('interactionCreate', async interaction => {
     }
   };
 
+  // Common min length check (skip query if too short)
+  const search = (focused.value || '').toLowerCase().trim();
+  if (search.length < 2) {
+    await safeRespond([]);
+    return;
+  }
+
   // /game-result opponent
   if (focused.name === 'opponent') {
-    const search = (focused.value || '').toLowerCase().trim();
     try {
+      console.log(`[autocomplete] Searching opponent for: "${search}"`);
       const { data: teamsData, error } = await supabase
         .from('teams')
         .select('name')
-        .ilike('name', `%${search}%`) // faster case-insensitive search
-        .limit(50); // reduce load
+        .ilike('name', `%${search}%`)
+        .limit(50);
 
       if (error) throw error;
 
-      const list = (teamsData || []).map(r => r.name).slice(0, 25);
-      list.sort((a, b) => a.localeCompare(b));
+      const list = (teamsData || []).map(r => r.name).sort((a, b) => a.localeCompare(b));
 
-      await safeRespond(list.map(n => ({ name: n, value: n })));
+      await safeRespond(list.slice(0, 25).map(n => ({ name: n, value: n })));
+      console.log(`[autocomplete] opponent found ${list.length} matches`);
     } catch (err) {
       console.error('Autocomplete /opponent error:', err);
-      await safeRespond([]); // return empty to avoid Discord timeout
+      await safeRespond([]);
     }
     return;
   }
 
   // /move-coach coach
   if (focused.name === 'coach') {
-    const search = (focused.value || '').toLowerCase().trim();
     try {
+      console.log(`[autocomplete] Searching coach for: "${search}"`);
       const { data: teamsData, error } = await supabase
         .from('teams')
         .select('taken_by_name')
@@ -514,6 +521,7 @@ client.on('interactionCreate', async interaction => {
       const uniqueCoaches = [...new Set(coachList)].sort((a, b) => a.localeCompare(b));
 
       await safeRespond(uniqueCoaches.slice(0, 25).map(n => ({ name: n, value: n })));
+      console.log(`[autocomplete] coach found ${uniqueCoaches.length} unique matches`);
     } catch (err) {
       console.error('Autocomplete /coach error:', err);
       await safeRespond([]);
@@ -523,8 +531,8 @@ client.on('interactionCreate', async interaction => {
 
   // /move-coach new_team
   if (focused.name === 'new_team') {
-    const search = (focused.value || '').toLowerCase().trim();
     try {
+      console.log(`[autocomplete] Searching new_team for: "${search}"`);
       const { data: teamsData, error } = await supabase
         .from('teams')
         .select('id, name, taken_by_name')
@@ -539,6 +547,7 @@ client.on('interactionCreate', async interaction => {
       }).sort((a, b) => a.name.localeCompare(b.name));
 
       await safeRespond(list.slice(0, 25));
+      console.log(`[autocomplete] new_team found ${list.length} matches`);
     } catch (err) {
       console.error('Autocomplete /new_team error:', err);
       await safeRespond([]);
@@ -548,8 +557,8 @@ client.on('interactionCreate', async interaction => {
 
   // /any-game-result home_team & away_team
   if (focused.name === 'home_team' || focused.name === 'away_team') {
-    const search = (focused.value || '').toLowerCase().trim();
     try {
+      console.log(`[autocomplete] Searching ${focused.name} for: "${search}"`);
       const { data: teamsData, error } = await supabase
         .from('teams')
         .select('name')
@@ -561,8 +570,9 @@ client.on('interactionCreate', async interaction => {
       const list = (teamsData || []).map(r => r.name).sort((a, b) => a.localeCompare(b));
 
       await safeRespond(list.slice(0, 25).map(n => ({ name: n, value: n })));
+      console.log(`[autocomplete] ${focused.name} found ${list.length} matches`);
     } catch (err) {
-      console.error('Autocomplete any-game-result error:', err);
+      console.error(`Autocomplete ${focused.name} error:`, err);
       await safeRespond([]);
     }
     return;
@@ -865,23 +875,130 @@ client.on('interactionCreate', async interaction => {
   return;
 }
 
-  // ───────────────────────────────────────────────
-  // /any-game-result
-  // ───────────────────────────────────────────────
-  if (name === 'any-game-result') {
-    // Commissioner check
-    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-      return interaction.editReply({ content: "Only the commissioner can use this command.", flags: 64 });
-    }
+// ───────────────────────────────────────────────
+// /any-game-result (commissioner only)
+// ───────────────────────────────────────────────
+if (name === 'any-game-result') {
+  console.log('[any-game-result] Started');
 
-    // ... your full any-game-result logic ...
-    // At the end:
-    await interaction.editReply({
-      content: `Result recorded for Week ${week}: ${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}`
-    });
-    return;
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can use this command.", flags: 64 });
   }
 
+  const homeTeamName = interaction.options.getString('home_team');
+  const awayTeamName = interaction.options.getString('away_team');
+  const homeScore = interaction.options.getInteger('home_score');
+  const awayScore = interaction.options.getInteger('away_score');
+  const week = interaction.options.getInteger('week');
+  const summary = interaction.options.getString('summary');
+
+  try {
+    console.log('[any-game-result] Looking up teams...');
+
+    const { data: allTeams } = await supabase.from('teams').select('*').limit(1000);
+
+    // Find home team (case-insensitive, partial match)
+    let homeTeam = allTeams.find(t => t.name.toLowerCase() === homeTeamName.toLowerCase().trim());
+    if (!homeTeam) homeTeam = allTeams.find(t => t.name.toLowerCase().includes(homeTeamName.toLowerCase().trim()));
+
+    // Find away team
+    let awayTeam = allTeams.find(t => t.name.toLowerCase() === awayTeamName.toLowerCase().trim());
+    if (!awayTeam) awayTeam = allTeams.find(t => t.name.toLowerCase().includes(awayTeamName.toLowerCase().trim()));
+
+    if (!homeTeam) return interaction.editReply({ content: `Home team "${homeTeamName}" not found.`, flags: 64 });
+    if (!awayTeam) return interaction.editReply({ content: `Away team "${awayTeamName}" not found.`, flags: 64 });
+
+    const homeResult = homeScore > awayScore ? 'W' : 'L';
+    const awayResult = homeScore > awayScore ? 'L' : 'W';
+
+    const isHomeUserControlled = !!homeTeam.taken_by;
+    const isAwayUserControlled = !!awayTeam.taken_by;
+
+    console.log('[any-game-result] Inserting result...');
+    const insert = await supabase.from('results').insert([{
+      season: 1,                    // ← change if you support multiple seasons
+      week: week,
+      user_team_id: homeTeam.id,
+      user_team_name: homeTeam.name,
+      opponent_team_id: awayTeam.id,
+      opponent_team_name: awayTeam.name,
+      user_score: homeScore,
+      opponent_score: awayScore,
+      summary,
+      result: homeResult,
+      taken_by: homeTeam.taken_by,
+      taken_by_name: homeTeam.taken_by_name
+    }]);
+
+    if (insert.error) throw insert.error;
+
+    // Update records for home team
+    if (isHomeUserControlled) {
+      const { data: existing } = await supabase
+        .from('records')
+        .select('*')
+        .eq('season', 1)
+        .eq('team_id', homeTeam.id)
+        .maybeSingle();
+
+      await supabase.from('records').upsert({
+        season: 1,
+        team_id: homeTeam.id,
+        team_name: homeTeam.name,
+        taken_by: homeTeam.taken_by,
+        taken_by_name: homeTeam.taken_by_name,
+        wins: (existing?.wins || 0) + (homeResult === 'W' ? 1 : 0),
+        losses: (existing?.losses || 0) + (homeResult === 'L' ? 1 : 0),
+        user_wins: (existing?.user_wins || 0) + (isAwayUserControlled && homeResult === 'W' ? 1 : 0),
+        user_losses: (existing?.user_losses || 0) + (isAwayUserControlled && homeResult === 'L' ? 1 : 0)
+      }, { onConflict: 'season,team_id' });
+    }
+
+    // Update records for away team
+    if (isAwayUserControlled) {
+      const { data: existing } = await supabase
+        .from('records')
+        .select('*')
+        .eq('season', 1)
+        .eq('team_id', awayTeam.id)
+        .maybeSingle();
+
+      await supabase.from('records').upsert({
+        season: 1,
+        team_id: awayTeam.id,
+        team_name: awayTeam.name,
+        taken_by: awayTeam.taken_by,
+        taken_by_name: awayTeam.taken_by_name,
+        wins: (existing?.wins || 0) + (awayResult === 'W' ? 1 : 0),
+        losses: (existing?.losses || 0) + (awayResult === 'L' ? 1 : 0),
+        user_wins: (existing?.user_wins || 0) + (isHomeUserControlled && awayResult === 'W' ? 1 : 0),
+        user_losses: (existing?.user_losses || 0) + (isHomeUserControlled && awayResult === 'L' ? 1 : 0)
+      }, { onConflict: 'season,team_id' });
+    }
+
+    // Optional: Post box score to #news-feed
+    const guild = interaction.guild;
+    if (guild) {
+      const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
+      if (newsChannel) {
+        const embed = {
+          title: `Manually Entered Result: ${homeTeam.name} vs ${awayTeam.name}`,
+          color: homeResult === 'W' ? 0x00ff00 : 0xff0000,
+          description: `${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}\nSummary: ${summary || 'No summary'}`,
+          timestamp: new Date()
+        };
+        await newsChannel.send({ embeds: [embed] }).catch(() => {});
+      }
+    }
+
+    await interaction.editReply(`✅ Game result entered for Week ${week}: ${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}`);
+  } catch (err) {
+    console.error('[any-game-result] Error:', err);
+    await interaction.editReply({ content: `Error entering result: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}
   // ───────────────────────────────────────────────
   // /press-release
   // ───────────────────────────────────────────────
