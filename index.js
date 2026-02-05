@@ -116,11 +116,20 @@ const commands = [
     .setDMPermission(false),
 
   new SlashCommandBuilder()
-    .setName('advance')
-    .setDescription('Advance to next week (commissioner only)')
-    .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-
+  .setName('advance')
+  .setDescription('Advance to next week (commissioner only)')
+  .setDMPermission(false)
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .addStringOption(option =>
+    option
+      .setName('interval')
+      .setDescription('Time until next advance')
+      .setRequired(true)
+      .addChoices(
+        { name: '24 hours', value: '24' },
+        { name: '48 hours', value: '48' }
+      )
+  ),
   new SlashCommandBuilder()
     .setName('season-advance')
     .setDescription('Advance to next season (commissioner only)')
@@ -1042,6 +1051,26 @@ if (name === 'advance') {
     return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
   }
 
+  const intervalHours = parseInt(interaction.options.getString('interval'), 10);
+  if (![24, 48].includes(intervalHours)) {
+    return interaction.editReply({ content: "Interval must be 24 or 48 hours.", flags: 64 });
+  }
+
+  // Calculate next advance time
+  const now = new Date();
+  const nextAdvance = new Date(now.getTime() + intervalHours * 60 * 60 * 1000);
+  const nextAdvanceFormatted = nextAdvance.toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZoneName: 'short'
+  });
+
+  const nextAdvanceMessage = `Next advance expected in ${intervalHours} hours: **${nextAdvanceFormatted}**`;
+
   try {
     console.log('[advance] Fetching current week & season...');
     const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
@@ -1049,30 +1078,26 @@ if (name === 'advance') {
 
     let currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
     const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
-    console.log('[advance] Read from DB:', { week: currentWeek, season: currentSeason });
+    console.log('[advance] Current:', { week: currentWeek, season: currentSeason });
 
-    // Advance logic
     const newWeek = currentWeek + 1;
     console.log('[advance] Advancing to week', newWeek);
 
-    // Update meta
     const updateResp = await supabase
       .from('meta')
       .update({ value: newWeek })
       .eq('key', 'current_week')
-      .select(); // return updated value for verification
+      .select();
 
     if (updateResp.error) throw updateResp.error;
 
-    // Verify update succeeded
-    const updatedWeek = updateResp.data?.[0]?.value;
+    const updatedWeek = Number(updateResp.data?.[0]?.value);
     console.log('[advance] DB update result:', { updatedWeek });
 
     if (updatedWeek !== newWeek) {
       console.warn('[advance] Update mismatch - expected', newWeek, 'got', updatedWeek);
     }
 
-    // Build & send summary (your existing logic here)
     console.log('[advance] Building summary for completed week', currentWeek);
     const { data: pressData } = await supabase
       .from('news_feed')
@@ -1107,30 +1132,36 @@ if (name === 'advance') {
 
     embed.description = descriptionParts.length > 0 ? descriptionParts.join('\n\n') : 'No news or results this week.';
 
+    console.log('[advance] Sending embeds to channels...');
     const guild = interaction.guild;
     if (guild) {
       const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
-      if (newsChannel) await newsChannel.send({ embeds: [embed] }).catch(e => console.error('news send failed:', e));
+      if (newsChannel) {
+        await newsChannel.send({ embeds: [embed] }).catch(e => console.error('news send failed:', e));
+      }
 
       const generalChannel = guild.channels.cache.find(c => c.name === 'main-chat' && c.isTextBased());
-      if (generalChannel) await generalChannel.send({ embeds: [embed] }).catch(e => console.error('general send failed:', e));
+      if (generalChannel) {
+        await generalChannel.send({ embeds: [embed] }).catch(e => console.error('general send failed:', e));
+      }
 
       const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
       if (advanceChannel) {
-  const headCoachRoleId = '1463949316702994496';
-    await advanceChannel.send(`<@&${headCoachRoleId}> We have advanced to Week ${newWeek}`).catch(e => console.error('advance send failed:', e));
+        const headCoachRoleId = '1463949316702994496'; // your role ID
+        await advanceChannel.send(
+          `<@&${headCoachRoleId}> We have advanced to Week ${newWeek}\n${nextAdvanceMessage}`
+        ).catch(e => console.error('advance send failed:', e));
+      }
     }
 
-    await interaction.editReply(`Week advanced to **${newWeek}**. Summary posted to channels.`);
-    }
+    await interaction.editReply(`Week advanced to **${newWeek}**.\n${nextAdvanceMessage}\nSummary posted to channels.`);
   } catch (err) {
     console.error('[advance] Error:', err);
     await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
   }
 
-  return;  // Ensures handler exits cleanly
-}
-  
+  return;
+}  
   // ───────────────────────────────────────────────
   // /season-advance
   // ───────────────────────────────────────────────
