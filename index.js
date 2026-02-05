@@ -1591,52 +1591,6 @@ if (name === 'advance') {
   await interaction.editReply({ content: "Command not implemented yet.", flags: 64 }).catch(() => {});
 });
 // ---------------------------------------------------------
-// REACTION HANDLER (for rules reaction -> trigger job offers)
-// ---------------------------------------------------------
-// Behavior: when a user reacts with :saluting_face: in the "rules" channel, send them job offers
-// Adjust channel name or message id if you prefer a different trigger
-client.on('messageReactionAdd', async (reaction, user) => {
-  try {
-    if (user.bot) return;
-
-    if (reaction.partial) await reaction.fetch();
-    if (reaction.message.partial) await reaction.message.fetch();
-
-    // only watch for :saluting_face: 
-    if (reaction.emoji.name === '🫡') return;
-
-    // optionally restrict to a specific message ID or channel name
-    // if you want to restrict to the rules channel, check:
-    const channel = reaction.message.channel;
-    // CHANGE 'rules' to the exact channel name you use for the rules message
-    if (!channel || channel.name !== 'front-desk') return;
-
-    // soft-lock
-    if (jobOfferUsed.has(user.id)) {
-      // optionally DM user about why they didn't get offers
-      try { await user.send("⛔ You've already received your job offers."); } catch (e) {}
-      return;
-    }
-
-    jobOfferUsed.add(user.id);
-
-    try {
-      const offers = await sendJobOffersToUser(user, 5);
-      if (!offers || offers.length === 0) {
-        jobOfferUsed.delete(user.id);
-        try { await user.send("No teams available right now."); } catch (e) {}
-      }
-    } catch (err) {
-      console.error("sendJobOffersToUser error:", err);
-      jobOfferUsed.delete(user.id);
-      try { await user.send(`Error fetching offers: ${err.message}`); } catch (e) {}
-    }
-  } catch (err) {
-    console.error("messageReactionAdd handler error:", err);
-  }
-});
-
-// ---------------------------------------------------------
 // DM ACCEPT OFFER (user replies to bot DM with a number)
 // ---------------------------------------------------------
 client.on('messageCreate', async msg => {
