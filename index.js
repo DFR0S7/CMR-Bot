@@ -136,15 +136,11 @@ const commands = [
     .setDMPermission(false)
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
-  new SlashCommandBuilder()
-    .setName('ranking')
-    .setDescription('Show current season rankings (commissioner only)')
-    .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addBooleanOption(opt => opt
-      .setName('public')
-      .setDescription('Post to #news-feed (default: private)')
-      .setRequired(false)),
+ new SlashCommandBuilder()
+  .setName('ranking')
+  .setDescription('Show current season rankings (commissioner only)')
+  .setDMPermission(false)
+  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
     .setName('ranking-all-time')
@@ -1056,7 +1052,7 @@ if (name === 'advance') {
     return interaction.editReply({ content: "Interval must be 24 or 48 hours.", flags: 64 });
   }
 
-  // Calculate next advance time
+  // Calculate next advance time in CST
   const now = new Date();
   const nextAdvance = new Date(now.getTime() + intervalHours * 60 * 60 * 1000);
   const nextAdvanceFormatted = nextAdvance.toLocaleString('en-US', {
@@ -1066,6 +1062,7 @@ if (name === 'advance') {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
+    timeZone: 'America/Chicago',
     timeZoneName: 'short'
   });
 
@@ -1223,13 +1220,11 @@ if (name === 'advance') {
     // /ranking (current season)
     // ---------------------------
     if (name === 'ranking') {
-  console.log('[ranking] Started');
+  console.log('[ranking] Started for', interaction.user.tag);
 
   if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
     return interaction.editReply({ content: "Only the commissioner can view rankings.", flags: 64 });
   }
-
-  const isPublic = interaction.options.getBoolean('public') || false;
 
   try {
     console.log('[ranking] Fetching current season...');
@@ -1243,9 +1238,9 @@ if (name === 'advance') {
       .eq('season', currentSeason);
 
     if (recordsErr) throw recordsErr;
+    console.log('[ranking] Fetched records count:', records?.length || 0);
 
-    console.log('[ranking] Fetched', records?.length || 0, 'records');
-
+    console.log('[ranking] Fetching current active coaches...');
     const { data: currentUsers, error: usersErr } = await supabase
       .from('teams')
       .select('taken_by')
@@ -1254,17 +1249,23 @@ if (name === 'advance') {
     if (usersErr) throw usersErr;
 
     const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
+    console.log('[ranking] Active user IDs count:', currentUserIds.size);
 
     const filteredRecords = (records || []).filter(r => currentUserIds.has(r.taken_by));
+    console.log('[ranking] Filtered active records count:', filteredRecords.length);
 
-    console.log('[ranking] Filtered to', filteredRecords.length, 'active user records');
+    if (filteredRecords.length === 0) {
+      return interaction.editReply({ content: "No active user records found for this season.", flags: 64 });
+    }
 
+    console.log('[ranking] Fetching results for H2H tiebreakers...');
     const { data: results, error: resultsErr } = await supabase
       .from('results')
       .select('*')
       .eq('season', currentSeason);
 
     if (resultsErr) throw resultsErr;
+    console.log('[ranking] Fetched results count:', results?.length || 0);
 
     const h2hMap = {};
     if (results) {
@@ -1325,7 +1326,7 @@ if (name === 'advance') {
     }
 
     if (!description) description = 'No user teams found.';
-    else description += `*Record in parentheses is vs user teams only*`;
+    else description += '*Record in parentheses is vs user teams only*';
 
     const embed = {
       title: `🏆 CMR Dynasty Rankings – Season ${currentSeason}`,
@@ -1334,16 +1335,16 @@ if (name === 'advance') {
       timestamp: new Date()
     };
 
-    if (isPublic) {
-      const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'news-feed');
-      if (generalChannel) {
-        await generalChannel.send({ embeds: [embed] });
-        return interaction.editReply({ content: 'Rankings posted to #news-feed.' });
-      } else {
-        return interaction.editReply({ content: 'Error: Could not find #news-feed channel.' });
-      }
+    // Always post publicly to main-chat
+    const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'main-chat');
+    if (generalChannel) {
+      await generalChannel.send({ embeds: [embed] }).catch(e => {
+        console.error('[ranking] Failed to post to main-chat:', e);
+      });
+      await interaction.editReply({ content: 'Rankings posted to #main-chat.' });
     } else {
-      return interaction.editReply({ embeds: [embed] });
+      console.warn('[ranking] main-chat channel not found');
+      await interaction.editReply({ content: 'Rankings generated, but could not find #main-chat channel to post.' });
     }
   } catch (err) {
     console.error('ranking error:', err);
