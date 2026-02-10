@@ -1405,16 +1405,16 @@ if (name === 'advance') {
       timestamp: new Date()
     };
 
-    // Always post publicly to main-chat
-    const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'main-chat');
+    // Always post publicly to news-feed
+    const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'news-feed');
     if (generalChannel) {
       await generalChannel.send({ embeds: [embed] }).catch(e => {
-        console.error('[ranking] Failed to post to main-chat:', e);
+        console.error('[ranking] Failed to post to news-feed:', e);
       });
-      await interaction.editReply({ content: 'Rankings posted to #main-chat.' });
+      await interaction.editReply({ content: 'Rankings posted to #news-feed.' });
     } else {
-      console.warn('[ranking] main-chat channel not found');
-      await interaction.editReply({ content: 'Rankings generated, but could not find #main-chat channel to post.' });
+      console.warn('[ranking] news-feed channel not found');
+      await interaction.editReply({ content: 'Rankings generated, but could not find #news-feed channel to post.' });
     }
   } catch (err) {
     console.error('ranking error:', err);
