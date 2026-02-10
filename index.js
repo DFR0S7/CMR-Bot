@@ -818,6 +818,81 @@ client.on('interactionCreate', async interaction => {
       console.error('[game-result] Insert error:', insertResp.error);
       return interaction.editReply({ content: `Failed to save result: ${insertResp.error.message}`, flags: 64 });
     }
+ // Update records for submitting team (home/user team)
+console.log('[game-result] Updating records for submitting team...');
+try {
+  const { data: existingRecord } = await supabase
+    .from('records')
+    .select('*')
+    .eq('season', currentSeason)
+    .eq('team_id', userTeam.id)
+    .maybeSingle();
+
+  const newWins = (existingRecord?.wins || 0) + (resultText === 'W' ? 1 : 0);
+  const newLosses = (existingRecord?.losses || 0) + (resultText === 'L' ? 1 : 0);
+  const newUserWins = (existingRecord?.user_wins || 0) + (isOpponentUserControlled && resultText === 'W' ? 1 : 0);
+  const newUserLosses = (existingRecord?.user_losses || 0) + (isOpponentUserControlled && resultText === 'L' ? 1 : 0);
+
+  const upsertResp = await supabase.from('records').upsert({
+    season: currentSeason,
+    team_id: userTeam.id,
+    team_name: userTeam.name,
+    taken_by: userTeam.taken_by,
+    taken_by_name: userTeam.taken_by_name || interaction.user.username,
+    wins: newWins,
+    losses: newLosses,
+    user_wins: newUserWins,
+    user_losses: newUserLosses
+  }, { onConflict: 'season,team_id' });
+
+  if (upsertResp.error) {
+    console.error('[game-result] Records upsert failed for user team:', upsertResp.error);
+  } else {
+    console.log('[game-result] Records updated for', userTeam.name, `wins: ${newWins}, losses: ${newLosses}`);
+  }
+} catch (err) {
+  console.error('[game-result] Records update error (user team):', err);
+}
+
+// Update records for opponent (if user-controlled)
+if (isOpponentUserControlled) {
+  console.log('[game-result] Updating records for opponent team...');
+  try {
+    const oppResultText = resultText === 'W' ? 'L' : 'W';
+
+    const { data: existingOppRecord } = await supabase
+      .from('records')
+      .select('*')
+      .eq('season', currentSeason)
+      .eq('team_id', opponentTeam.id)
+      .maybeSingle();
+
+    const newOppWins = (existingOppRecord?.wins || 0) + (oppResultText === 'W' ? 1 : 0);
+    const newOppLosses = (existingOppRecord?.losses || 0) + (oppResultText === 'L' ? 1 : 0);
+    const newOppUserWins = (existingOppRecord?.user_wins || 0) + (resultText === 'W' ? 1 : 0);
+    const newOppUserLosses = (existingOppRecord?.user_losses || 0) + (resultText === 'L' ? 1 : 0);
+
+    const oppUpsertResp = await supabase.from('records').upsert({
+      season: currentSeason,
+      team_id: opponentTeam.id,
+      team_name: opponentTeam.name,
+      taken_by: opponentTeam.taken_by,
+      taken_by_name: opponentTeam.taken_by_name || 'Unknown',
+      wins: newOppWins,
+      losses: newOppLosses,
+      user_wins: newOppUserWins,
+      user_losses: newOppUserLosses
+    }, { onConflict: 'season,team_id' });
+
+    if (oppUpsertResp.error) {
+      console.error('[game-result] Records upsert failed for opponent:', oppUpsertResp.error);
+    } else {
+      console.log('[game-result] Records updated for opponent', opponentTeam.name);
+    }
+  } catch (err) {
+    console.error('[game-result] Records update error (opponent):', err);
+  }
+}   
 // Post box score to news-feed
     console.log('[game-result] Posting to news-feed...');
     const guild = interaction.guild;
