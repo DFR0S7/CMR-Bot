@@ -587,7 +587,7 @@ client.on('interactionCreate', async interaction => {
   await safeRespond([]);
 }
   // ───────────────────────────────────────────────────────
-  // 2. IMMEDIATELY defer ALL slash commands (prevents 10062 timeout)
+  // 2. IMMEDIATELY defer ALL slash commands 
   // ───────────────────────────────────────────────────────
  if (interaction.isChatInputCommand()) {
     try {
@@ -1137,12 +1137,7 @@ if (name === 'advance') {
         await newsChannel.send({ embeds: [embed] }).catch(e => console.error('news send failed:', e));
       }
 
-      const generalChannel = guild.channels.cache.find(c => c.name === 'main-chat' && c.isTextBased());
-      if (generalChannel) {
-        await generalChannel.send({ embeds: [embed] }).catch(e => console.error('general send failed:', e));
-      }
-
-      const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
+     const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
       if (advanceChannel) {
         const headCoachRoleId = '1463949316702994496'; // your role ID
         await advanceChannel.send(
@@ -1151,7 +1146,7 @@ if (name === 'advance') {
       }
     }
 
-    await interaction.editReply(`Week advanced to **${newWeek}**.\n${nextAdvanceMessage}\nSummary posted to channels.`);
+    await interaction.editReply(`Week advanced to **${newWeek}** & Summary posted to channels.`);
   } catch (err) {
     console.error('[advance] Error:', err);
     await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
