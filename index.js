@@ -1817,8 +1817,6 @@ if (msg.author.bot || !msg.guild || !msg.channel.isTextBased()) return;
     }
   }, 45 * 60 * 1000);
 });
-  
-});
 
 // ---------------------------------------------------------
 // START BOT
