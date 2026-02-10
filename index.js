@@ -1781,6 +1781,43 @@ client.on('messageCreate', async msg => {
     console.error('[DM] Top-level error in claim flow:', err);
     await msg.reply("An error occurred processing your request.").catch(() => {});
   }
+if (msg.author.bot || !msg.guild || !msg.channel.isTextBased()) return;
+
+  // Only watch team channels (adjust names or parent category as needed)
+  const isTeamChannel = msg.channel.parent?.name === 'Team Channels' || 
+                        msg.channel.name.toLowerCase().includes('team-') || 
+                        msg.channel.name.toLowerCase().includes('-team');
+
+  if (!isTeamChannel) return;
+
+  const content = msg.content.toLowerCase();
+  const hasStreamLink = content.includes('youtube.com') || 
+                        content.includes('youtu.be') || 
+                        content.includes('twitch.tv');
+
+  if (!hasStreamLink) return;
+
+  console.log(`[stream-reminder] Detected stream link in ${msg.channel.name} by ${msg.author.tag}`);
+
+  // Wait 45 minutes (2700000 ms = 45 * 60 * 1000)
+  setTimeout(async () => {
+    try {
+      // Re-fetch message and channel to make sure they still exist
+      const channel = await client.channels.fetch(msg.channel.id);
+      if (!channel?.isTextBased()) return;
+
+      const reminderText = 
+        `<@${msg.author.id}> Just a friendly reminder! ` +
+        `Don't forget to share your game results using `/game-result` 😊`;
+
+      await channel.send(reminderText);
+      console.log(`[stream-reminder] Sent reminder to ${msg.author.tag} in ${msg.channel.name}`);
+    } catch (err) {
+      console.error('[stream-reminder] Failed to send reminder:', err);
+    }
+  }, 45 * 60 * 1000);
+});
+  
 });
 
 // ---------------------------------------------------------
