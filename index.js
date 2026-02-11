@@ -708,7 +708,7 @@ client.on('interactionCreate', async interaction => {
  if (name === 'game-result') {
   console.log('[game-result] Started for', interaction.user.tag);
 
-  let opponentTeam = null; // Declare early so it's always defined
+  let opponentTeam = null;
 
   const opponentName = interaction.options.getString('opponent');
   const userScore = interaction.options.getInteger('your_score');
@@ -716,12 +716,14 @@ client.on('interactionCreate', async interaction => {
   const summary = interaction.options.getString('summary');
 
   try {
+    // ── Season & week ──
     console.log('[game-result] Fetching season & week...');
     const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
-    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+    const weekResp   = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
     const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
-    const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+    const currentWeek   = weekResp.data?.value   != null ? Number(weekResp.data.value)   : 0;
 
+    // ── User team ──
     console.log('[game-result] Fetching user team...');
     const { data: userTeam, error: userTeamErr } = await supabase
       .from('teams')
@@ -729,75 +731,48 @@ client.on('interactionCreate', async interaction => {
       .eq('taken_by', interaction.user.id)
       .maybeSingle();
 
-    if (userTeamErr) {
-      console.error('[game-result] User team query error:', userTeamErr);
-      return interaction.editReply({ content: `Error: ${userTeamErr.message}`, flags: 64 });
-    }
-
+    if (userTeamErr) throw userTeamErr;
     if (!userTeam) {
       return interaction.editReply({ content: "You don't control a team.", flags: 64 });
     }
 
-    console.log('[game-result] Checking existing result...');
-    const { data: existingUserResult } = await supabase
+    // ── Check duplicate submission ──
+    console.log('[game-result] Checking for existing result...');
+    const { data: existing } = await supabase
       .from('results')
-      .select('*')
+      .select('opponent_team_name')
       .eq('season', currentSeason)
       .eq('week', currentWeek)
       .eq('user_team_id', userTeam.id)
       .maybeSingle();
 
-    if (existingUserResult) {
+    if (existing) {
       return interaction.editReply({
-        content: `You already submitted a result this week (vs ${existingUserResult.opponent_team_name}). You can only submit one result per week.`,
+        content: `You already submitted a result this week (vs ${existing.opponent_team_name}).`,
         flags: 64
       });
     }
 
-    console.log('[game-result] Looking up opponent team...');
-    // Opponent lookup (your existing try/catch)
-    try {
-      const { data: teamsData, error: teamsErr } = await supabase.from('teams').select('*').limit(1000);
-      if (teamsErr) throw teamsErr;
+    // ── Find opponent ──
+    console.log('[game-result] Looking up opponent...');
+    const { data: teamsData, error: teamsErr } = await supabase
+      .from('teams')
+      .select('*')
+      .limit(1000);
 
-      const needle = (opponentName || '').toLowerCase().trim();
-      if (teamsData && teamsData.length > 0) {
-        opponentTeam = teamsData.find(t => (t.name || '').toLowerCase() === needle);
-        if (!opponentTeam) opponentTeam = teamsData.find(t => (t.name || '').toLowerCase().includes(needle));
-      }
-    } catch (err) {
-      console.error('[game-result] Opponent lookup error:', err);
-      return interaction.editReply({ content: `Error looking up opponent: ${err.message}`, flags: 64 });
-    }
+    if (teamsErr) throw teamsErr;
+
+    const needle = (opponentName || '').toLowerCase().trim();
+    opponentTeam = teamsData.find(t => t.name?.toLowerCase() === needle) ||
+                   teamsData.find(t => t.name?.toLowerCase().includes(needle));
 
     if (!opponentTeam) {
       return interaction.editReply({ content: `Opponent "${opponentName}" not found.`, flags: 64 });
     }
 
-    console.log('[game-result] Opponent found:', opponentTeam.name);
+    console.log('[game-result] Opponent:', opponentTeam.name);
 
-    // Check if opponent already submitted this matchup (if user-controlled)
-    const isOpponentUserControlled = opponentTeam.taken_by != null;
-    if (isOpponentUserControlled) {
-      const { data: existingOpponentResult } = await supabase
-        .from('results')
-        .select('*')
-        .eq('season', currentSeason)
-        .eq('week', currentWeek)
-        .eq('user_team_id', opponentTeam.id)
-        .eq('opponent_team_id', userTeam.id)
-        .maybeSingle();
-
-      if (existingOpponentResult) {
-        return interaction.editReply({
-          content: `${opponentTeam.name} already submitted this game result. Only the home team can enter the result.`,
-          flags: 64
-        });
-      }
-    }
-
-    const resultText = userScore > opponentScore ? 'W' : 'L';
-
+    // ── Insert result ──
     console.log('[game-result] Inserting result...');
     const insertResp = await supabase.from('results').insert([{
       season: currentSeason,
@@ -809,90 +784,80 @@ client.on('interactionCreate', async interaction => {
       user_score: userScore,
       opponent_score: opponentScore,
       summary,
-      result: resultText,
+      result: userScore > opponentScore ? 'W' : 'L',
       taken_by: userTeam.taken_by,
       taken_by_name: userTeam.taken_by_name || interaction.user.username
     }]);
 
     if (insertResp.error) {
-      console.error('[game-result] Insert error:', insertResp.error);
+      console.error('[game-result] Insert failed:', insertResp.error);
       return interaction.editReply({ content: `Failed to save result: ${insertResp.error.message}`, flags: 64 });
     }
- // Update records for submitting team (home/user team)
-console.log('[game-result] Updating records for submitting team...');
-try {
-  const { data: existingRecord } = await supabase
-    .from('records')
-    .select('*')
-    .eq('season', currentSeason)
-    .eq('team_id', userTeam.id)
-    .maybeSingle();
 
-  const newWins = (existingRecord?.wins || 0) + (resultText === 'W' ? 1 : 0);
-  const newLosses = (existingRecord?.losses || 0) + (resultText === 'L' ? 1 : 0);
-  const newUserWins = (existingRecord?.user_wins || 0) + (isOpponentUserControlled && resultText === 'W' ? 1 : 0);
-  const newUserLosses = (existingRecord?.user_losses || 0) + (isOpponentUserControlled && resultText === 'L' ? 1 : 0);
+    console.log('[game-result] Result inserted successfully');
 
-  const upsertResp = await supabase.from('records').upsert({
-    season: currentSeason,
-    team_id: userTeam.id,
-    team_name: userTeam.name,
-    taken_by: userTeam.taken_by,
-    taken_by_name: userTeam.taken_by_name || interaction.user.username,
-    wins: newWins,
-    losses: newLosses,
-    user_wins: newUserWins,
-    user_losses: newUserLosses
-  }, { onConflict: 'season,team_id' });
+    // ── UPDATE RECORDS ──
+    const isOppControlled = !!opponentTeam.taken_by;
 
-  if (upsertResp.error) {
-    console.error('[game-result] Records upsert failed for user team:', upsertResp.error);
-  } else {
-    console.log('[game-result] Records updated for', userTeam.name, `wins: ${newWins}, losses: ${newLosses}`);
-  }
-} catch (err) {
-  console.error('[game-result] Records update error (user team):', err);
-}
+    // Submitting team (user's team)
+    console.log('[game-result] Updating records for user team...');
+    try {
+      const { data: rec } = await supabase
+        .from('records')
+        .select('wins, losses, user_wins, user_losses')
+        .eq('season', currentSeason)
+        .eq('team_id', userTeam.id)
+        .maybeSingle();
 
-// Update records for opponent (if user-controlled)
-if (isOpponentUserControlled) {
-  console.log('[game-result] Updating records for opponent team...');
-  try {
-    const oppResultText = resultText === 'W' ? 'L' : 'W';
+      const resultIsWin = userScore > opponentScore;
 
-    const { data: existingOppRecord } = await supabase
-      .from('records')
-      .select('*')
-      .eq('season', currentSeason)
-      .eq('team_id', opponentTeam.id)
-      .maybeSingle();
+      await supabase.from('records').upsert({
+        season: currentSeason,
+        team_id: userTeam.id,
+        team_name: userTeam.name,
+        taken_by: userTeam.taken_by,
+        taken_by_name: userTeam.taken_by_name || interaction.user.username,
+        wins: (rec?.wins || 0) + (resultIsWin ? 1 : 0),
+        losses: (rec?.losses || 0) + (!resultIsWin ? 1 : 0),
+        user_wins: (rec?.user_wins || 0) + (isOppControlled && resultIsWin ? 1 : 0),
+        user_losses: (rec?.user_losses || 0) + (isOppControlled && !resultIsWin ? 1 : 0)
+      }, { onConflict: 'season,team_id' });
 
-    const newOppWins = (existingOppRecord?.wins || 0) + (oppResultText === 'W' ? 1 : 0);
-    const newOppLosses = (existingOppRecord?.losses || 0) + (oppResultText === 'L' ? 1 : 0);
-    const newOppUserWins = (existingOppRecord?.user_wins || 0) + (resultText === 'W' ? 1 : 0);
-    const newOppUserLosses = (existingOppRecord?.user_losses || 0) + (resultText === 'L' ? 1 : 0);
-
-    const oppUpsertResp = await supabase.from('records').upsert({
-      season: currentSeason,
-      team_id: opponentTeam.id,
-      team_name: opponentTeam.name,
-      taken_by: opponentTeam.taken_by,
-      taken_by_name: opponentTeam.taken_by_name || 'Unknown',
-      wins: newOppWins,
-      losses: newOppLosses,
-      user_wins: newOppUserWins,
-      user_losses: newOppUserLosses
-    }, { onConflict: 'season,team_id' });
-
-    if (oppUpsertResp.error) {
-      console.error('[game-result] Records upsert failed for opponent:', oppUpsertResp.error);
-    } else {
-      console.log('[game-result] Records updated for opponent', opponentTeam.name);
+      console.log('[game-result] User team records upserted');
+    } catch (e) {
+      console.error('[game-result] Failed to update user team records:', e);
     }
-  } catch (err) {
-    console.error('[game-result] Records update error (opponent):', err);
-  }
-}   
+
+    // Opponent team (if controlled)
+    if (isOppControlled) {
+      console.log('[game-result] Updating records for opponent...');
+      try {
+        const { data: oppRec } = await supabase
+          .from('records')
+          .select('wins, losses, user_wins, user_losses')
+          .eq('season', currentSeason)
+          .eq('team_id', opponentTeam.id)
+          .maybeSingle();
+
+        const oppWins = !resultIsWin;
+
+        await supabase.from('records').upsert({
+          season: currentSeason,
+          team_id: opponentTeam.id,
+          team_name: opponentTeam.name,
+          taken_by: opponentTeam.taken_by,
+          taken_by_name: opponentTeam.taken_by_name,
+          wins: (oppRec?.wins || 0) + (oppWins ? 1 : 0),
+          losses: (oppRec?.losses || 0) + (!oppWins ? 1 : 0),
+          user_wins: (oppRec?.user_wins || 0) + (resultIsWin ? 1 : 0),
+          user_losses: (oppRec?.user_losses || 0) + (!resultIsWin ? 1 : 0)
+        }, { onConflict: 'season,team_id' });
+
+        console.log('[game-result] Opponent records upserted');
+      } catch (e) {
+        console.error('[game-result] Failed to update opponent records:', e);
+      }
+    }   
 // Post box score to news-feed
     console.log('[game-result] Posting to news-feed...');
     const guild = interaction.guild;
