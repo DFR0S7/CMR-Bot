@@ -1757,8 +1757,6 @@ if (msg.author.bot || !msg.guild || !msg.channel.isTextBased()) return;
   // Only watch team channels (adjust names or parent category as needed)
   const isTeamChannel = msg.channel.parent?.name === 'Team Channels' ||
 
-  if (!isTeamChannel) return;
-
   const content = msg.content;
   
   // Improved regex to catch most YouTube/Twitch links
