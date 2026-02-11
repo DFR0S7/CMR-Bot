@@ -1627,158 +1627,164 @@ if (name === 'advance') {
   await interaction.editReply({ content: "Command not implemented yet.", flags: 64 }).catch(() => {});
 });
 // ---------------------------------------------------------
-// DM ACCEPT OFFER (user replies to bot DM with a number)
+// DM ACCEPT OFFER + STREAM REMINDER
 // ---------------------------------------------------------
 client.on('messageCreate', async msg => {
+  // 1. Skip if not a DM or from bot
   if (msg.guild || msg.author.bot) return;
 
   console.log(`[DM] Received from ${msg.author.tag} (${msg.author.id}): "${msg.content.trim()}"`);
 
   const userId = msg.author.id;
 
-  if (!client.userOffers || !client.userOffers[userId]) {
-    console.log('[DM] No pending offers for user', userId);
-    return;
-  }
+  // DM acceptance for job offers
+  if (client.userOffers && client.userOffers[userId]) {
+    const offers = client.userOffers[userId];
+    console.log('[DM] Found', offers.length, 'pending offers');
 
-  const offers = client.userOffers[userId];
-  console.log('[DM] Found', offers.length, 'pending offers');
+    const choiceRaw = msg.content.trim();
+    const choice = parseInt(choiceRaw, 10);
 
-  const choiceRaw = msg.content.trim();
-  const choice = parseInt(choiceRaw, 10);
+    console.log('[DM] Choice parsed:', { raw: choiceRaw, parsed: choice });
 
-  console.log('[DM] Choice parsed:', { raw: choiceRaw, parsed: choice });
-
-  if (isNaN(choice) || choice < 1 || choice > offers.length) {
-    console.log('[DM] Invalid choice');
-    return msg.reply("Reply with the number of the team you choose (from the DM list).").catch(e => console.error('[DM] Reply failed:', e));
-  }
-
-  const team = offers[choice - 1];
-  console.log('[DM] Selected team:', team.name, '(ID:', team.id, ')');
-
-  try {
-    console.log('[DM] Updating Supabase...');
-    const updateResp = await supabase.from('teams').update({
-      taken_by: userId,
-      taken_by_name: msg.author.username
-    }).eq('id', team.id);
-
-    if (updateResp.error) {
-      console.error('[DM] Supabase update failed:', updateResp.error);
-      return msg.reply("Failed to claim the team — database error.").catch(() => {});
+    if (isNaN(choice) || choice < 1 || choice > offers.length) {
+      console.log('[DM] Invalid choice');
+      return msg.reply("Reply with the number of the team you choose (from the DM list).").catch(e => console.error('[DM] Reply failed:', e));
     }
 
-    console.log('[DM] Supabase updated successfully');
+    const team = offers[choice - 1];
+    console.log('[DM] Selected team:', team.name, '(ID:', team.id, ')');
 
-    // Send confirmation DM FIRST (before guild operations)
-    await msg.reply(`You accepted the job offer from **${team.name}**!`).catch(e => {
-      console.error('[DM] Confirmation reply failed:', e);
-    });
-
-    delete client.userOffers[userId];
-    console.log('[DM] Cleared userOffers for', userId);
-
-    // Guild operations
-    const guild = client.guilds.cache.first();
-    if (!guild) {
-      console.error('[DM] No guild found in cache');
-      return;
-    }
-
-    console.log('[DM] Guild found:', guild.name, '(ID:', guild.id, ')');
-
-    // Announce in general
-    const general = guild.channels.cache.find(c => c.name === 'signed-coaches' && c.isTextBased());
-    if (general) {
-      await general.send(`🏈 <@${userId}> has accepted a job offer from **${team.name}**!`).catch(e => {
-        console.error('[DM] General announce failed:', e);
-      });
-    } else {
-      console.warn('[DM] main-chat channel not found');
-    }
-
-    // Create team channel
     try {
-      const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
-      let teamChannelsCategory = guild.channels.cache.find(c => c.name === 'Team Channels' && c.type === ChannelType.GuildCategory);
-      if (!teamChannelsCategory) {
-        teamChannelsCategory = await guild.channels.create({
-          name: 'Team Channels',
-          type: ChannelType.GuildCategory
-        });
-        console.log('[DM] Created Team Channels category');
+      console.log('[DM] Updating Supabase...');
+      const updateResp = await supabase.from('teams').update({
+        taken_by: userId,
+        taken_by_name: msg.author.username
+      }).eq('id', team.id);
+
+      if (updateResp.error) {
+        console.error('[DM] Supabase update failed:', updateResp.error);
+        return msg.reply("Failed to claim the team — database error.").catch(() => {});
       }
 
-      const newChannel = await guild.channels.create({
-        name: channelName,
-        type: ChannelType.GuildText,
-        parent: teamChannelsCategory.id,
-        reason: `Team channel for ${team.name}`
+      console.log('[DM] Supabase updated successfully');
+
+      await msg.reply(`You accepted the job offer from **${team.name}**!`).catch(e => {
+        console.error('[DM] Confirmation reply failed:', e);
       });
-      console.log('[DM] Created channel #', channelName);
 
-      await newChannel.send(`Welcome to **${team.name}**! <@${userId}> is the Head Coach.`);
-    } catch (err) {
-      console.error('[DM] Channel creation failed:', err);
-    }
+      delete client.userOffers[userId];
+      console.log('[DM] Cleared userOffers for', userId);
 
-    // Assign Head Coach role
-    try {
-      const member = await guild.members.fetch(userId);
-      let headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
-      if (!headCoachRole) {
-        headCoachRole = await guild.roles.create({
-          name: 'head coach',
-          reason: 'Role for team heads'
-        });
-        console.log('[DM] Created head coach role');
+      const guild = client.guilds.cache.first();
+      if (!guild) {
+        console.error('[DM] No guild found in cache');
+        return;
       }
-      await member.roles.add(headCoachRole, "Claimed team");
-      console.log('[DM] Assigned Head Coach role to', msg.author.tag);
+
+      console.log('[DM] Guild found:', guild.name, '(ID:', guild.id, ')');
+
+      const general = guild.channels.cache.find(c => c.name === 'signed-coaches' && c.isTextBased());
+      if (general) {
+        await general.send(`🏈 <@${userId}> has accepted a job offer from **${team.name}**!`).catch(e => {
+          console.error('[DM] General announce failed:', e);
+        });
+      } else {
+        console.warn('[DM] signed-coaches channel not found');
+      }
+
+      try {
+        const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
+        let teamChannelsCategory = guild.channels.cache.find(c => c.name === 'Team Channels' && c.type === ChannelType.GuildCategory);
+        if (!teamChannelsCategory) {
+          teamChannelsCategory = await guild.channels.create({
+            name: 'Team Channels',
+            type: ChannelType.GuildCategory
+          });
+          console.log('[DM] Created Team Channels category');
+        }
+
+        const newChannel = await guild.channels.create({
+          name: channelName,
+          type: ChannelType.GuildText,
+          parent: teamChannelsCategory.id,
+          reason: `Team channel for ${team.name}`
+        });
+        console.log('[DM] Created channel #', channelName);
+
+        await newChannel.send(`Welcome to **${team.name}**! <@${userId}> is the Head Coach.`);
+      } catch (err) {
+        console.error('[DM] Channel creation failed:', err);
+      }
+
+      try {
+        const member = await guild.members.fetch(userId);
+        let headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
+        if (!headCoachRole) {
+          headCoachRole = await guild.roles.create({
+            name: 'head coach',
+            reason: 'Role for team heads'
+          });
+          console.log('[DM] Created head coach role');
+        }
+        await member.roles.add(headCoachRole, "Claimed team");
+        console.log('[DM] Assigned Head Coach role to', msg.author.tag);
+      } catch (err) {
+        console.error('[DM] Role assignment failed:', err);
+      }
+
+      await runListTeamsDisplay();
+      console.log('[DM] Claim flow completed successfully');
     } catch (err) {
-      console.error('[DM] Role assignment failed:', err);
+      console.error('[DM] Top-level error in claim flow:', err);
+      await msg.reply("An error occurred processing your request.").catch(() => {});
     }
-
-    await runListTeamsDisplay();
-    console.log('[DM] Claim flow completed successfully');
-  } catch (err) {
-    console.error('[DM] Top-level error in claim flow:', err);
-    await msg.reply("An error occurred processing your request.").catch(() => {});
+    return; // Exit after handling DM claim
   }
-if (msg.author.bot || !msg.guild || !msg.channel.isTextBased()) return;
 
-  // Only watch team channels (adjust names or parent category as needed)
-  const isTeamChannel = msg.channel.parent?.name === 'Team Channels' || 
-                        msg.channel.name.toLowerCase().includes('team-') || 
-                        msg.channel.name.toLowerCase().includes('-team');
+  // ───────────────────────────────────────────────
+  // STREAM REMINDER (45 min after posting link in team channels)
+  // ───────────────────────────────────────────────
+  if (msg.author.bot || !msg.guild || !msg.channel.isTextBased()) return;
+
+  // Only watch team channels
+  const isTeamChannel = 
+    msg.channel.parent?.name === 'Team Channels' ||
+    msg.channel.name.toLowerCase().includes('team-') ||
+    msg.channel.name.toLowerCase().includes('-team');
 
   if (!isTeamChannel) return;
 
-  const content = msg.content.toLowerCase();
-  const hasStreamLink = content.includes('youtube.com') || 
-                        content.includes('youtu.be') || 
-                        content.includes('twitch.tv');
+  const content = msg.content;
 
-  if (!hasStreamLink) return;
+  // Detect YouTube or Twitch links
+  const streamRegex = /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|twitch\.tv|youtube\.com\/shorts)\/[^\s<>"')]+/i;
+
+  if (!streamRegex.test(content)) return;
 
   console.log(`[stream-reminder] Detected stream link in ${msg.channel.name} by ${msg.author.tag}`);
 
-  // Wait 45 minutes (2700000 ms = 45 * 60 * 1000)
+  // Optional: require game/stream context to reduce false positives
+  const hasGameContext = /live|stream|game|watch|vs|playing/i.test(content);
+  if (!hasGameContext) {
+    console.log('[stream-reminder] Link detected but no game context — skipping');
+    return;
+  }
+
+  // Schedule reminder 45 minutes later
   setTimeout(async () => {
     try {
-      // Re-fetch message and channel to make sure they still exist
       const channel = await client.channels.fetch(msg.channel.id);
       if (!channel?.isTextBased()) return;
 
       const reminderText = 
-        `<@${msg.author.id}> Just a friendly reminder! ` +
-        `Don't forget to share your game results using `/game-result` 😊`;
+        `<@${msg.author.id}> Friendly reminder! ` +
+        `Please share your game results using the \`/game-result\` command 😊`;
 
       await channel.send(reminderText);
-      console.log(`[stream-reminder] Sent reminder to ${msg.author.tag} in ${msg.channel.name}`);
+      console.log(`[stream-reminder] Sent reminder in ${msg.channel.name}`);
     } catch (err) {
-      console.error('[stream-reminder] Failed to send reminder:', err);
+      console.error('[stream-reminder] Failed to send reminder:', err.message);
     }
   }, 45 * 60 * 1000);
 });
