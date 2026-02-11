@@ -80,6 +80,7 @@ if (!globalThis.jobOfferUsedGlobal) globalThis.jobOfferUsedGlobal = jobOfferUsed
 // ---------------------------------------------------------
 // REGISTER GUILD (TESTING) COMMANDS
 // ---------------------------------------------------------
+// Note: only register in your testing guild to iterate quickly
 const commands = [
   new SlashCommandBuilder()
     .setName('joboffers')
@@ -706,82 +707,72 @@ client.on('interactionCreate', async interaction => {
   // ───────────────────────────────────────────────
  if (name === 'game-result') {
   console.log('[game-result] Started for', interaction.user.tag);
+
   let opponentTeam = null;
+
   const opponentName = interaction.options.getString('opponent');
   const userScore = interaction.options.getInteger('your_score');
   const opponentScore = interaction.options.getInteger('opponent_score');
   const summary = interaction.options.getString('summary');
+
   try {
+    // ── Season & week ──
     console.log('[game-result] Fetching season & week...');
     const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
-    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+    const weekResp   = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
     const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
-    const currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+    const currentWeek   = weekResp.data?.value   != null ? Number(weekResp.data.value)   : 0;
+
+    // ── User team ──
     console.log('[game-result] Fetching user team...');
     const { data: userTeam, error: userTeamErr } = await supabase
       .from('teams')
       .select('*')
       .eq('taken_by', interaction.user.id)
       .maybeSingle();
-    if (userTeamErr) {
-      console.error('[game-result] User team query error:', userTeamErr);
-      return interaction.editReply({ content: `Error: ${userTeamErr.message}`, flags: 64 });
-    }
+
+    if (userTeamErr) throw userTeamErr;
     if (!userTeam) {
       return interaction.editReply({ content: "You don't control a team.", flags: 64 });
     }
-    console.log('[game-result] Checking existing result...');
-    const { data: existingUserResult } = await supabase
+
+    // ── Check duplicate submission ──
+    console.log('[game-result] Checking for existing result...');
+    const { data: existing } = await supabase
       .from('results')
-      .select('*')
+      .select('opponent_team_name')
       .eq('season', currentSeason)
       .eq('week', currentWeek)
       .eq('user_team_id', userTeam.id)
       .maybeSingle();
-    if (existingUserResult) {
+
+    if (existing) {
       return interaction.editReply({
-        content: `You already submitted a result this week (vs ${existingUserResult.opponent_team_name}). You can only submit one result per week.`,
+        content: `You already submitted a result this week (vs ${existing.opponent_team_name}).`,
         flags: 64
       });
     }
-    console.log('[game-result] Looking up opponent team...');
-    // Opponent lookup (your existing try/catch)
-    try {
-      const { data: teamsData, error: teamsErr } = await supabase.from('teams').select('*').limit(1000);
-      if (teamsErr) throw teamsErr;
-      const needle = (opponentName || '').toLowerCase().trim();
-      if (teamsData && teamsData.length > 0) {
-        opponentTeam = teamsData.find(t => (t.name || '').toLowerCase() === needle);
-        if (!opponentTeam) opponentTeam = teamsData.find(t => (t.name || '').toLowerCase().includes(needle));
-      }
-    } catch (err) {
-      console.error('[game-result] Opponent lookup error:', err);
-      return interaction.editReply({ content: `Error looking up opponent: ${err.message}`, flags: 64 });
-    }
+
+    // ── Find opponent ──
+    console.log('[game-result] Looking up opponent...');
+    const { data: teamsData, error: teamsErr } = await supabase
+      .from('teams')
+      .select('*')
+      .limit(1000);
+
+    if (teamsErr) throw teamsErr;
+
+    const needle = (opponentName || '').toLowerCase().trim();
+    opponentTeam = teamsData.find(t => t.name?.toLowerCase() === needle) ||
+                   teamsData.find(t => t.name?.toLowerCase().includes(needle));
+
     if (!opponentTeam) {
       return interaction.editReply({ content: `Opponent "${opponentName}" not found.`, flags: 64 });
     }
-    console.log('[game-result] Opponent found:', opponentTeam.name);
-    // Check if opponent already submitted this matchup (if user-controlled)
-    const isOpponentUserControlled = opponentTeam.taken_by != null;
-    if (isOpponentUserControlled) {
-      const { data: existingOpponentResult } = await supabase
-        .from('results')
-        .select('*')
-        .eq('season', currentSeason)
-        .eq('week', currentWeek)
-        .eq('user_team_id', opponentTeam.id)
-        .eq('opponent_team_id', userTeam.id)
-        .maybeSingle();
 
-      if (existingOpponentResult) {
-        return interaction.editReply({
-          content: `${opponentTeam.name} already submitted this game result. Only the home team can enter the result.`,
-          flags: 64
-        });
-      }
-    }
-    const resultText = userScore > opponentScore ? 'W' : 'L';
+    console.log('[game-result] Opponent:', opponentTeam.name);
+
+    // ── Insert result ──
     console.log('[game-result] Inserting result...');
     const insertResp = await supabase.from('results').insert([{
       season: currentSeason,
@@ -793,15 +784,18 @@ client.on('interactionCreate', async interaction => {
       user_score: userScore,
       opponent_score: opponentScore,
       summary,
-      result: resultText,
+      result: userScore > opponentScore ? 'W' : 'L',
       taken_by: userTeam.taken_by,
       taken_by_name: userTeam.taken_by_name || interaction.user.username
     }]);
+
     if (insertResp.error) {
-      console.error('[game-result] Insert error:', insertResp.error);
+      console.error('[game-result] Insert failed:', insertResp.error);
       return interaction.editReply({ content: `Failed to save result: ${insertResp.error.message}`, flags: 64 });
     }
+
     console.log('[game-result] Result inserted successfully');
+
     // ── UPDATE RECORDS ──
     const isOppControlled = !!opponentTeam.taken_by;
 
@@ -902,4 +896,930 @@ client.on('interactionCreate', async interaction => {
           `Summary: ${summary || 'No summary provided'}`;
 
         const resultEmbed = {
-          title: `Game Result:
+          title: `Game Result: ${userTeam.name} vs ${opponentTeam.name}`,
+          color: resultText === 'W' ? 0x00ff00 : 0xff0000,
+          description: boxScoreText,
+          timestamp: new Date()
+        };
+
+        await newsChannel.send({ embeds: [resultEmbed] }).catch(e => {
+          console.error('[game-result] News-feed post failed:', e);
+        });
+      } else {
+        console.warn('[game-result] news-feed channel not found');
+      }
+    }
+
+    // Final reply to user
+    await interaction.editReply({ content: `Result recorded and posted to #news-feed: ${userTeam.name} vs ${opponentTeam.name}` });
+  } catch (err) {
+    console.error('[game-result] Top-level error:', err);
+    await interaction.editReply({ content: `Error processing game result: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}
+
+// ───────────────────────────────────────────────
+// /any-game-result (commissioner only)
+// ───────────────────────────────────────────────
+if (name === 'any-game-result') {
+  console.log('[any-game-result] Started');
+
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can use this command.", flags: 64 });
+  }
+
+  const homeTeamName = interaction.options.getString('home_team');
+  const awayTeamName = interaction.options.getString('away_team');
+  const homeScore = interaction.options.getInteger('home_score');
+  const awayScore = interaction.options.getInteger('away_score');
+  const week = interaction.options.getInteger('week');
+  const summary = interaction.options.getString('summary');
+
+  try {
+    console.log('[any-game-result] Looking up teams...');
+
+    const { data: allTeams } = await supabase.from('teams').select('*').limit(1000);
+
+    // Find home team (case-insensitive, partial match)
+    let homeTeam = allTeams.find(t => t.name.toLowerCase() === homeTeamName.toLowerCase().trim());
+    if (!homeTeam) homeTeam = allTeams.find(t => t.name.toLowerCase().includes(homeTeamName.toLowerCase().trim()));
+
+    // Find away team
+    let awayTeam = allTeams.find(t => t.name.toLowerCase() === awayTeamName.toLowerCase().trim());
+    if (!awayTeam) awayTeam = allTeams.find(t => t.name.toLowerCase().includes(awayTeamName.toLowerCase().trim()));
+
+    if (!homeTeam) return interaction.editReply({ content: `Home team "${homeTeamName}" not found.`, flags: 64 });
+    if (!awayTeam) return interaction.editReply({ content: `Away team "${awayTeamName}" not found.`, flags: 64 });
+
+    const homeResult = homeScore > awayScore ? 'W' : 'L';
+    const awayResult = homeScore > awayScore ? 'L' : 'W';
+
+    const isHomeUserControlled = !!homeTeam.taken_by;
+    const isAwayUserControlled = !!awayTeam.taken_by;
+
+    console.log('[any-game-result] Inserting result...');
+    const insert = await supabase.from('results').insert([{
+      season: 1,                    // ← change if you support multiple seasons
+      week: week,
+      user_team_id: homeTeam.id,
+      user_team_name: homeTeam.name,
+      opponent_team_id: awayTeam.id,
+      opponent_team_name: awayTeam.name,
+      user_score: homeScore,
+      opponent_score: awayScore,
+      summary,
+      result: homeResult,
+      taken_by: homeTeam.taken_by,
+      taken_by_name: homeTeam.taken_by_name
+    }]);
+
+    if (insert.error) throw insert.error;
+
+    // Update records for home team
+    if (isHomeUserControlled) {
+      const { data: existing } = await supabase
+        .from('records')
+        .select('*')
+        .eq('season', 1)
+        .eq('team_id', homeTeam.id)
+        .maybeSingle();
+
+      await supabase.from('records').upsert({
+        season: 1,
+        team_id: homeTeam.id,
+        team_name: homeTeam.name,
+        taken_by: homeTeam.taken_by,
+        taken_by_name: homeTeam.taken_by_name,
+        wins: (existing?.wins || 0) + (homeResult === 'W' ? 1 : 0),
+        losses: (existing?.losses || 0) + (homeResult === 'L' ? 1 : 0),
+        user_wins: (existing?.user_wins || 0) + (isAwayUserControlled && homeResult === 'W' ? 1 : 0),
+        user_losses: (existing?.user_losses || 0) + (isAwayUserControlled && homeResult === 'L' ? 1 : 0)
+      }, { onConflict: 'season,team_id' });
+    }
+
+    // Update records for away team
+    if (isAwayUserControlled) {
+      const { data: existing } = await supabase
+        .from('records')
+        .select('*')
+        .eq('season', 1)
+        .eq('team_id', awayTeam.id)
+        .maybeSingle();
+
+      await supabase.from('records').upsert({
+        season: 1,
+        team_id: awayTeam.id,
+        team_name: awayTeam.name,
+        taken_by: awayTeam.taken_by,
+        taken_by_name: awayTeam.taken_by_name,
+        wins: (existing?.wins || 0) + (awayResult === 'W' ? 1 : 0),
+        losses: (existing?.losses || 0) + (awayResult === 'L' ? 1 : 0),
+        user_wins: (existing?.user_wins || 0) + (isHomeUserControlled && awayResult === 'W' ? 1 : 0),
+        user_losses: (existing?.user_losses || 0) + (isHomeUserControlled && awayResult === 'L' ? 1 : 0)
+      }, { onConflict: 'season,team_id' });
+    }
+
+    // Optional: Post box score to #news-feed
+    const guild = interaction.guild;
+    if (guild) {
+      const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
+      if (newsChannel) {
+        const embed = {
+          title: `Manually Entered Result: ${homeTeam.name} vs ${awayTeam.name}`,
+          color: homeResult === 'W' ? 0x00ff00 : 0xff0000,
+          description: `${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}\nSummary: ${summary || 'No summary'}`,
+          timestamp: new Date()
+        };
+        await newsChannel.send({ embeds: [embed] }).catch(() => {});
+      }
+    }
+
+    await interaction.editReply(`✅ Game result entered for Week ${week}: ${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}`);
+  } catch (err) {
+    console.error('[any-game-result] Error:', err);
+    await interaction.editReply({ content: `Error entering result: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}
+  // ───────────────────────────────────────────────
+  // /press-release
+  // ───────────────────────────────────────────────
+  if (name === 'press-release') {
+    const text = interaction.options.getString('text');
+    const seasonResp = await supabase.from('meta').select('value').eq('key','current_season').maybeSingle();
+    const weekResp = await supabase.from('meta').select('value').eq('key','current_week').maybeSingle();
+    const season = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+    const week = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+
+    const insert = await supabase.from('news_feed').insert([{ season, week, text }]);
+    if (insert.error) {
+      return interaction.editReply({ content: `Error: ${insert.error.message}`, flags: 64 });
+    }
+
+    const guild = client.guilds.cache.first();
+    if (guild) {
+      const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
+      if (newsChannel) {
+        const embed = {
+          title: `Press Release`,
+          color: 0xffa500,
+          description: text,
+          timestamp: new Date()
+        };
+        await newsChannel.send({ embeds: [embed] }).catch(() => {});
+      }
+    }
+
+    await interaction.editReply({ content: "Press release posted." });
+    return;
+  }
+
+  // ───────────────────────────────────────────────
+  // /advance
+  // ───────────────────────────────────────────────
+if (name === 'advance') {
+  console.log('[advance] Started for', interaction.user.tag);
+
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can advance the week.", flags: 64 });
+  }
+
+  const intervalHours = parseInt(interaction.options.getString('interval'), 10);
+  if (![24, 48].includes(intervalHours)) {
+    return interaction.editReply({ content: "Interval must be 24 or 48 hours.", flags: 64 });
+  }
+
+  // Calculate next advance time in CST
+  const now = new Date();
+  const nextAdvance = new Date(now.getTime() + intervalHours * 60 * 60 * 1000);
+  const nextAdvanceFormatted = nextAdvance.toLocaleString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'America/Chicago',
+    timeZoneName: 'short'
+  });
+
+  const nextAdvanceMessage = `Next advance expected in ${intervalHours} hours: **${nextAdvanceFormatted}**`;
+
+  try {
+    console.log('[advance] Fetching current week & season...');
+    const weekResp = await supabase.from('meta').select('value').eq('key', 'current_week').maybeSingle();
+    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+
+    let currentWeek = weekResp.data?.value != null ? Number(weekResp.data.value) : 0;
+    const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+    console.log('[advance] Current:', { week: currentWeek, season: currentSeason });
+
+    const newWeek = currentWeek + 1;
+    console.log('[advance] Advancing to week', newWeek);
+
+    const updateResp = await supabase
+      .from('meta')
+      .update({ value: newWeek })
+      .eq('key', 'current_week')
+      .select();
+
+    if (updateResp.error) throw updateResp.error;
+
+    const updatedWeek = Number(updateResp.data?.[0]?.value);
+    console.log('[advance] DB update result:', { updatedWeek });
+
+    if (updatedWeek !== newWeek) {
+      console.warn('[advance] Update mismatch - expected', newWeek, 'got', updatedWeek);
+    }
+
+    console.log('[advance] Building summary for completed week', currentWeek);
+    const { data: pressData } = await supabase
+      .from('news_feed')
+      .select('text')
+      .eq('week', currentWeek)
+      .eq('season', currentSeason);
+
+    const { data: weeklyResults } = await supabase
+      .from('results')
+      .select('*')
+      .eq('season', currentSeason)
+      .eq('week', currentWeek);
+
+    const embed = {
+      title: `Weekly Summary – Season ${currentSeason}, Week ${currentWeek}`,
+      color: 0x1e90ff,
+      description: '',
+      timestamp: new Date()
+    };
+
+    let descriptionParts = [];
+
+    if (pressData?.length > 0) {
+      descriptionParts.push('**Press Releases:**\n' + pressData.map(p => `• ${p.text}`).join('\n'));
+    }
+
+    if (weeklyResults?.length > 0) {
+      descriptionParts.push('**Game Results:**\n' + weeklyResults.map(r => {
+        return `${r.user_team_name} ${r.user_score || '?'} - ${r.opponent_team_name} ${r.opponent_score || '?'}\nSummary: ${r.summary || 'No summary'}`;
+      }).join('\n\n'));
+    }
+
+    embed.description = descriptionParts.length > 0 ? descriptionParts.join('\n\n') : 'No news or results this week.';
+
+    console.log('[advance] Sending embeds to channels...');
+    const guild = interaction.guild;
+    if (guild) {
+      const newsChannel = guild.channels.cache.find(c => c.name === 'news-feed' && c.isTextBased());
+      if (newsChannel) {
+        await newsChannel.send({ embeds: [embed] }).catch(e => console.error('news send failed:', e));
+      }
+
+     const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
+      if (advanceChannel) {
+        const headCoachRoleId = '1463949316702994496'; // your role ID
+        await advanceChannel.send(
+          `<@&${headCoachRoleId}> We have advanced to Week ${newWeek}\n${nextAdvanceMessage}`
+        ).catch(e => console.error('advance send failed:', e));
+      }
+    }
+
+    await interaction.editReply(`Week advanced to **${newWeek}** & Summary posted to channels.`);
+  } catch (err) {
+    console.error('[advance] Error:', err);
+    await interaction.editReply({ content: `Error advancing week: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}  
+  // ───────────────────────────────────────────────
+  // /season-advance
+  // ───────────────────────────────────────────────
+  if (name === 'season-advance') {
+  console.log('[season-advance] Started');
+
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can advance the season.", flags: 64 });
+  }
+
+  try {
+    console.log('[season-advance] Fetching current season...');
+    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+    let currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+    console.log('[season-advance] Current season:', currentSeason);
+
+    const newSeason = currentSeason + 1;
+    console.log('[season-advance] Advancing to season', newSeason);
+
+    // Update season
+    const seasonUpdate = await supabase
+      .from('meta')
+      .update({ value: newSeason })
+      .eq('key', 'current_season');
+    if (seasonUpdate.error) throw seasonUpdate.error;
+
+    // Reset week to 0
+    const weekUpdate = await supabase
+      .from('meta')
+      .update({ value: 0 })
+      .eq('key', 'current_week');
+    if (weekUpdate.error) throw weekUpdate.error;
+
+    console.log('[season-advance] DB updates successful');
+
+    // Announce
+    const guild = interaction.guild;
+    if (guild) {
+      const advanceChannel = guild.channels.cache.find(c => c.name === 'advance-tracker' && c.isTextBased());
+      if (advanceChannel) {
+         const headCoachRoleId = '1463949316702994496';
+        await advanceChannel.send(`<@&${headCoachRoleId}> We have advanced to Season ${newSeason}! Week reset to 0.`).catch(e => {
+          console.error('[season-advance] Announce failed:', e);
+        });
+      } else {
+        console.warn('[season-advance] advance-tracker channel not found');
+      }
+    }
+
+    await interaction.editReply(`Season advanced to **${newSeason}**, week reset to 0.`);
+  } catch (err) {
+    console.error('[season-advance] Error:', err);
+    await interaction.editReply({ content: `Error advancing season: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}
+    // ---------------------------
+    // /ranking (current season)
+    // ---------------------------
+    if (name === 'ranking') {
+  console.log('[ranking] Started for', interaction.user.tag);
+
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can view rankings.", flags: 64 });
+  }
+
+  try {
+    console.log('[ranking] Fetching current season...');
+    const seasonResp = await supabase.from('meta').select('value').eq('key', 'current_season').maybeSingle();
+    const currentSeason = seasonResp.data?.value != null ? Number(seasonResp.data.value) : 1;
+
+    console.log('[ranking] Fetching season records...');
+    const { data: records, error: recordsErr } = await supabase
+      .from('records')
+      .select('*')
+      .eq('season', currentSeason);
+
+    if (recordsErr) throw recordsErr;
+    console.log('[ranking] Fetched records count:', records?.length || 0);
+
+    console.log('[ranking] Fetching current active coaches...');
+    const { data: currentUsers, error: usersErr } = await supabase
+      .from('teams')
+      .select('taken_by')
+      .not('taken_by', 'is', null);
+
+    if (usersErr) throw usersErr;
+
+    const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
+    console.log('[ranking] Active user IDs count:', currentUserIds.size);
+
+    const filteredRecords = (records || []).filter(r => currentUserIds.has(r.taken_by));
+    console.log('[ranking] Filtered active records count:', filteredRecords.length);
+
+    if (filteredRecords.length === 0) {
+      return interaction.editReply({ content: "No active user records found for this season.", flags: 64 });
+    }
+
+    console.log('[ranking] Fetching results for H2H tiebreakers...');
+    const { data: results, error: resultsErr } = await supabase
+      .from('results')
+      .select('*')
+      .eq('season', currentSeason);
+
+    if (resultsErr) throw resultsErr;
+    console.log('[ranking] Fetched results count:', results?.length || 0);
+
+    const h2hMap = {};
+    if (results) {
+      for (const r of results) {
+        if (r.taken_by && r.opponent_team_id) {
+          const oppRecord = records.find(rec => rec.team_id === r.opponent_team_id);
+          if (oppRecord && oppRecord.taken_by) {
+            const key = `${r.taken_by}_vs_${oppRecord.taken_by}`;
+            if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
+            if (r.result === 'W') h2hMap[key].wins++;
+            else h2hMap[key].losses++;
+          }
+        }
+      }
+    }
+
+    const getH2HWinPct = (userAId, userBId) => {
+      const key = `${userAId}_vs_${userBId}`;
+      if (!h2hMap[key]) return 0;
+      const { wins, losses } = h2hMap[key];
+      return (wins + losses) > 0 ? wins / (wins + losses) : 0;
+    };
+
+    const sorted = filteredRecords.sort((a, b) => {
+      const winDiff = Math.abs(a.wins - b.wins);
+
+      if (winDiff <= 1) {
+        const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
+        const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
+        if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+      } else {
+        return b.wins - a.wins;
+      }
+
+      const aUserPct = (a.user_wins + a.user_losses) > 0 ? a.user_wins / (a.user_wins + a.user_losses) : 0;
+      const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
+      if (aUserPct !== bUserPct) return bUserPct - aUserPct;
+
+      const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
+      const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
+      if (aH2H !== bH2H) return bH2H - aH2H;
+
+      return 0;
+    });
+
+    let description = '';
+    for (let i = 0; i < sorted.length; i++) {
+      const r = sorted[i];
+      const rank = i + 1;
+      const record = `${r.wins}-${r.losses}`;
+      const userRecord = `${r.user_wins}-${r.user_losses}`;
+      const displayName = r.taken_by_name || r.team_name;
+      const teamName = r.team_name;
+
+      description += `${rank.toString().padStart(2, ' ')}. ${displayName}\n`;
+      description += ` ${teamName}\n`;
+      description += ` ${record} (${userRecord})\n\n`;
+    }
+
+    if (!description) description = 'No user teams found.';
+    else description += '*Record in parentheses is vs user teams only*';
+
+    const embed = {
+      title: `🏆 CMR Dynasty Rankings – Season ${currentSeason}`,
+      description: '```\n' + description + '\n```',
+      color: 0xffd700,
+      timestamp: new Date()
+    };
+
+    // Always post publicly to news-feed
+    const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'news-feed');
+    if (generalChannel) {
+      await generalChannel.send({ embeds: [embed] }).catch(e => {
+        console.error('[ranking] Failed to post to news-feed:', e);
+      });
+      await interaction.editReply({ content: 'Rankings posted to #news-feed.' });
+    } else {
+      console.warn('[ranking] news-feed channel not found');
+      await interaction.editReply({ content: 'Rankings generated, but could not find #news-feed channel to post.' });
+    }
+  } catch (err) {
+    console.error('ranking error:', err);
+    await interaction.editReply({ content: `Error generating rankings: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}
+    // ---------------------------
+    // /ranking-all-time
+    // ---------------------------
+    if (name === 'ranking-all-time') {
+  console.log('[ranking-all-time] Started');
+
+  if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+    return interaction.editReply({ content: "Only the commissioner can view all-time rankings.", flags: 64 });
+  }
+
+  const isPublic = interaction.options.getBoolean('public') || false;
+
+  try {
+    console.log('[ranking-all-time] Fetching all records...');
+    const { data: allRecords, error: recordsErr } = await supabase.from('records').select('*');
+    if (recordsErr) throw recordsErr;
+
+    console.log('[ranking-all-time] Fetched', allRecords?.length || 0, 'total records');
+
+    console.log('[ranking-all-time] Fetching all results for H2H...');
+    const { data: results, error: resultsErr } = await supabase.from('results').select('*');
+    if (resultsErr) throw resultsErr;
+
+    // Build H2H map
+    const h2hMap = {};
+    if (results) {
+      for (const r of results) {
+        if (r.taken_by && r.opponent_team_id) {
+          const oppRecord = allRecords.find(rec => rec.team_id === r.opponent_team_id);
+          if (oppRecord && oppRecord.taken_by) {
+            const key = `${r.taken_by}_vs_${oppRecord.taken_by}`;
+            if (!h2hMap[key]) h2hMap[key] = { wins: 0, losses: 0 };
+            if (r.result === 'W') h2hMap[key].wins++;
+            else h2hMap[key].losses++;
+          }
+        }
+      }
+    }
+
+    const getH2HWinPct = (userAId, userBId) => {
+      const key = `${userAId}_vs_${userBId}`;
+      if (!h2hMap[key]) return 0;
+      const { wins, losses } = h2hMap[key];
+      return (wins + losses) > 0 ? wins / (wins + losses) : 0;
+    };
+
+    console.log('[ranking-all-time] Fetching current active coaches...');
+    const { data: currentUsers, error: usersErr } = await supabase
+      .from('teams')
+      .select('taken_by, name')
+      .not('taken_by', 'is', null);
+
+    if (usersErr) throw usersErr;
+
+    const currentUserIds = new Set((currentUsers || []).map(u => u.taken_by));
+    const userTeamMap = {};
+    (currentUsers || []).forEach(u => {
+      userTeamMap[u.taken_by] = u.name;
+    });
+
+    console.log('[ranking-all-time] Aggregating records for', currentUserIds.size, 'active users');
+
+    const userAggregates = {};
+    if (allRecords) {
+      for (const r of allRecords) {
+        const userId = r.taken_by;
+        if (!currentUserIds.has(userId)) continue;
+
+        if (!userAggregates[userId]) {
+          userAggregates[userId] = {
+            taken_by: userId,
+            taken_by_name: r.taken_by_name || 'Unknown',
+            team_name: userTeamMap[userId] || 'No Team',
+            wins: 0,
+            losses: 0,
+            user_wins: 0,
+            user_losses: 0
+          };
+        }
+
+        userAggregates[userId].wins += r.wins || 0;
+        userAggregates[userId].losses += r.losses || 0;
+        userAggregates[userId].user_wins += r.user_wins || 0;
+        userAggregates[userId].user_losses += r.user_losses || 0;
+      }
+    }
+
+    const sorted = Object.values(userAggregates).sort((a, b) => {
+      const winDiff = Math.abs(a.wins - b.wins);
+
+      if (winDiff <= 1) {
+        const aWinPct = (a.wins + a.losses) > 0 ? a.wins / (a.wins + a.losses) : 0;
+        const bWinPct = (b.wins + b.losses) > 0 ? b.wins / (b.wins + b.losses) : 0;
+        if (aWinPct !== bWinPct) return bWinPct - aWinPct;
+      } else {
+        return b.wins - a.wins;
+      }
+
+      const aUserPct = (a.user_wins + a.user_losses) > 0 ? a.user_wins / (a.user_wins + a.user_losses) : 0;
+      const bUserPct = (b.user_wins + b.user_losses) > 0 ? b.user_wins / (b.user_wins + b.user_losses) : 0;
+      if (aUserPct !== bUserPct) return bUserPct - aUserPct;
+
+      const aH2H = getH2HWinPct(a.taken_by, b.taken_by);
+      const bH2H = getH2HWinPct(b.taken_by, a.taken_by);
+      if (aH2H !== bH2H) return bH2H - aH2H;
+
+      return 0;
+    });
+
+    let description = '';
+    for (let i = 0; i < sorted.length; i++) {
+      const r = sorted[i];
+      const rank = i + 1;
+      const record = `${r.wins}-${r.losses}`;
+      const userRecord = `${r.user_wins}-${r.user_losses}`;
+      const displayName = r.taken_by_name || 'Unknown';
+      const teamName = r.team_name || 'No Team';
+
+      description += `${rank.toString().padStart(2, ' ')}. ${displayName}\n`;
+      description += ` ${teamName}\n`;
+      description += ` ${record} (${userRecord})\n\n`;
+    }
+
+    if (!description) description = 'No user teams found across all seasons.';
+    else description += `\n*Record in parentheses is vs user teams only*`;
+
+    const embed = {
+      title: `👑 CMR Dynasty All-Time Rankings`,
+      description: '```\n' + description + '\n```',
+      color: 0xffd700,
+      timestamp: new Date()
+    };
+
+    if (isPublic) {
+      const generalChannel = interaction.guild?.channels.cache.find(ch => ch.name === 'news-feed');
+      if (generalChannel) {
+        await generalChannel.send({ embeds: [embed] }).catch(e => console.error('Public rankings send failed:', e));
+        return interaction.editReply({ content: 'All-time rankings posted to #news-feed.' });
+      } else {
+        return interaction.editReply({ content: 'Error: Could not find #news-feed channel.' });
+      }
+    } else {
+      return interaction.editReply({ embeds: [embed] });
+    }
+  } catch (err) {
+    console.error('ranking-all-time error:', err);
+    await interaction.editReply({ content: `Error generating all-time rankings: ${err.message}`, flags: 64 });
+  }
+
+  return;
+}
+
+    // ---------------------------
+    // /move-coach
+    // ---------------------------
+    if (name === 'move-coach') {
+    if (!interaction.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+      return interaction.editReply({ content: "Only the commissioner can move coaches.", flags: 64 });
+    }
+
+    try {
+      const coachName = interaction.options.getString('coach');
+      const newTeamId = interaction.options.getString('new_team');
+
+      const { data: coachTeams, error: coachErr } = await supabase
+        .from('teams')
+        .select('*')
+        .eq('taken_by_name', coachName);
+      if (coachErr) throw coachErr;
+      if (!coachTeams || coachTeams.length === 0) {
+        return interaction.editReply(`Coach "${coachName}" not found.`);
+      }
+
+      const oldTeam = coachTeams[0];
+      const coachUserId = oldTeam.taken_by;
+
+      const { data: newTeam, error: newTeamErr } = await supabase
+        .from('teams')
+        .select('*')
+        .eq('id', newTeamId)
+        .maybeSingle();
+      if (newTeamErr) throw newTeamErr;
+      if (!newTeam) {
+        return interaction.editReply(`New team not found.`);
+      }
+
+      await supabase.from('teams').update({ taken_by: null, taken_by_name: null }).eq('id', oldTeam.id);
+      await supabase.from('teams').update({ taken_by: coachUserId, taken_by_name: coachName }).eq('id', newTeamId);
+
+      const guild = interaction.guild;
+    if (guild) {
+      const teamChannelCategory = guild.channels.cache.find(
+        ch => ch.name === 'Team Channels' && ch.type === ChannelType.GuildCategory
+      );
+
+      if (teamChannelCategory) {
+        console.log('[move-coach] Looking for old channel with name:', oldTeam.name);
+
+        // More flexible matching: partial match + normalize
+        const oldChannel = guild.channels.cache.find(ch => {
+          if (ch.parentId !== teamChannelCategory.id) return false;
+          if (ch.type !== ChannelType.GuildText) return false;
+
+          const normalizedOld = oldTeam.name.toLowerCase().replace(/\s+/g, '-');
+          const normalizedCurrent = ch.name.toLowerCase().replace(/\s+/g, '-');
+          return normalizedCurrent.includes(normalizedOld) || normalizedCurrent === normalizedOld;
+        });
+
+        if (oldChannel) {
+          console.log('[move-coach] Found old channel:', oldChannel.name, '(ID:', oldChannel.id, ')');
+          try {
+            await oldChannel.setName(newTeam.name);
+            console.log('[move-coach] Successfully renamed channel to:', newTeam.name);
+          } catch (renameErr) {
+            console.error('[move-coach] Channel rename failed:', renameErr.message);
+          }
+        } else {
+          console.warn('[move-coach] No matching channel found for old team:', oldTeam.name);
+        }
+      } else {
+        console.warn('[move-coach] Team Channels category not found');
+      }
+    }
+
+    return interaction.editReply(
+      `✅ Moved **${coachName}** from **${oldTeam.name}** to **${newTeam.name}**. Channel renamed (if it existed).`
+    );
+  } catch (err) {
+    console.error('move-coach error:', err);
+    return interaction.editReply(`Error moving coach: ${err.message}`);
+  }
+}
+  // ───────────────────────────────────────────────
+  // Catch-all for unhandled commands
+  // ───────────────────────────────────────────────
+  console.warn(`Unhandled command: /${name}`);
+  await interaction.editReply({ content: "Command not implemented yet.", flags: 64 }).catch(() => {});
+});
+// ---------------------------------------------------------
+// DM ACCEPT OFFER (user replies to bot DM with a number)
+// ---------------------------------------------------------
+client.on('messageCreate', async msg => {
+  if (msg.guild || msg.author.bot) return;
+
+  console.log(`[DM] Received from ${msg.author.tag} (${msg.author.id}): "${msg.content.trim()}"`);
+
+  const userId = msg.author.id;
+
+  if (!client.userOffers || !client.userOffers[userId]) {
+    console.log('[DM] No pending offers for user', userId);
+    return;
+  }
+
+  const offers = client.userOffers[userId];
+  console.log('[DM] Found', offers.length, 'pending offers');
+
+  const choiceRaw = msg.content.trim();
+  const choice = parseInt(choiceRaw, 10);
+
+  console.log('[DM] Choice parsed:', { raw: choiceRaw, parsed: choice });
+
+  if (isNaN(choice) || choice < 1 || choice > offers.length) {
+    console.log('[DM] Invalid choice');
+    return msg.reply("Reply with the number of the team you choose (from the DM list).").catch(e => console.error('[DM] Reply failed:', e));
+  }
+
+  const team = offers[choice - 1];
+  console.log('[DM] Selected team:', team.name, '(ID:', team.id, ')');
+
+  try {
+    console.log('[DM] Updating Supabase...');
+    const updateResp = await supabase.from('teams').update({
+      taken_by: userId,
+      taken_by_name: msg.author.username
+    }).eq('id', team.id);
+
+    if (updateResp.error) {
+      console.error('[DM] Supabase update failed:', updateResp.error);
+      return msg.reply("Failed to claim the team — database error.").catch(() => {});
+    }
+
+    console.log('[DM] Supabase updated successfully');
+
+    // Send confirmation DM FIRST (before guild operations)
+    await msg.reply(`You accepted the job offer from **${team.name}**!`).catch(e => {
+      console.error('[DM] Confirmation reply failed:', e);
+    });
+
+    delete client.userOffers[userId];
+    console.log('[DM] Cleared userOffers for', userId);
+
+    // Guild operations
+    const guild = client.guilds.cache.first();
+    if (!guild) {
+      console.error('[DM] No guild found in cache');
+      return;
+    }
+
+    console.log('[DM] Guild found:', guild.name, '(ID:', guild.id, ')');
+
+    // Announce in general
+    const general = guild.channels.cache.find(c => c.name === 'signed-coaches' && c.isTextBased());
+    if (general) {
+      await general.send(`🏈 <@${userId}> has accepted a job offer from **${team.name}**!`).catch(e => {
+        console.error('[DM] General announce failed:', e);
+      });
+    } else {
+      console.warn('[DM] main-chat channel not found');
+    }
+
+    // Create team channel
+    try {
+      const channelName = team.name.toLowerCase().replace(/\s+/g, '-');
+      let teamChannelsCategory = guild.channels.cache.find(c => c.name === 'Team Channels' && c.type === ChannelType.GuildCategory);
+      if (!teamChannelsCategory) {
+        teamChannelsCategory = await guild.channels.create({
+          name: 'Team Channels',
+          type: ChannelType.GuildCategory
+        });
+        console.log('[DM] Created Team Channels category');
+      }
+
+      const newChannel = await guild.channels.create({
+        name: channelName,
+        type: ChannelType.GuildText,
+        parent: teamChannelsCategory.id,
+        reason: `Team channel for ${team.name}`
+      });
+      console.log('[DM] Created channel #', channelName);
+
+      await newChannel.send(`Welcome to **${team.name}**! <@${userId}> is the Head Coach.`);
+    } catch (err) {
+      console.error('[DM] Channel creation failed:', err);
+    }
+
+    // Assign Head Coach role
+    try {
+      const member = await guild.members.fetch(userId);
+      let headCoachRole = guild.roles.cache.find(r => r.name === 'head coach');
+      if (!headCoachRole) {
+        headCoachRole = await guild.roles.create({
+          name: 'head coach',
+          reason: 'Role for team heads'
+        });
+        console.log('[DM] Created head coach role');
+      }
+      await member.roles.add(headCoachRole, "Claimed team");
+      console.log('[DM] Assigned Head Coach role to', msg.author.tag);
+    } catch (err) {
+      console.error('[DM] Role assignment failed:', err);
+    }
+
+    await runListTeamsDisplay();
+    console.log('[DM] Claim flow completed successfully');
+  } catch (err) {
+    console.error('[DM] Top-level error in claim flow:', err);
+    await msg.reply("An error occurred processing your request.").catch(() => {});
+  }
+if (msg.author.bot || !msg.guild || !msg.channel.isTextBased()) return;
+
+  // Only watch team channels (adjust names or parent category as needed)
+  const isTeamChannel = msg.channel.parent?.name === 'Team Channels' || 
+                        msg.channel.name.toLowerCase().includes('team-') || 
+                        msg.channel.name.toLowerCase().includes('-team');
+
+  if (!isTeamChannel) return;
+
+  const content = msg.content.toLowerCase();
+  const hasStreamLink = content.includes('youtube.com') || 
+                        content.includes('youtu.be') || 
+                        content.includes('twitch.tv');
+
+  if (!hasStreamLink) return;
+
+  console.log(`[stream-reminder] Detected stream link in ${msg.channel.name} by ${msg.author.tag}`);
+
+  // Wait 45 minutes (2700000 ms = 45 * 60 * 1000)
+  setTimeout(async () => {
+    try {
+      // Re-fetch message and channel to make sure they still exist
+      const channel = await client.channels.fetch(msg.channel.id);
+      if (!channel?.isTextBased()) return;
+
+      const reminderText = 
+        `<@${msg.author.id}> Just a friendly reminder! ` +
+        `Don't forget to share your game results using `/game-result` 😊`;
+
+      await channel.send(reminderText);
+      console.log(`[stream-reminder] Sent reminder to ${msg.author.tag} in ${msg.channel.name}`);
+    } catch (err) {
+      console.error('[stream-reminder] Failed to send reminder:', err);
+    }
+  }, 45 * 60 * 1000);
+});
+
+// ---------------------------------------------------------
+// START BOT
+// ---------------------------------------------------------
+// Global error handlers and graceful shutdown
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+process.on('uncaughtException', async (err) => {
+  console.error('Uncaught Exception:', err);
+  try {
+    if (client && client.destroy) await client.destroy();
+  } catch (e) {
+    console.error('Error during client.destroy() after uncaughtException:', e);
+  }
+  // Exit with failure - let the hosting platform restart the process
+  process.exit(1);
+});
+
+client.on('error', (err) => console.error('Discord client error:', err));
+client.on('warn', (info) => console.warn('Discord client warning:', info));
+client.on('shardError', (error) => console.error('Discord client shardError:', error));
+
+const _shutdown = async (signal) => {
+  console.log(`Received ${signal} - shutting down gracefully...`);
+  try {
+    if (client && client.destroy) await client.destroy();
+  } catch (e) {
+    console.error('Error during client.destroy() in shutdown:', e);
+  }
+  // Give logs a moment to flush
+  setTimeout(() => process.exit(0), 500);
+};
+
+process.on('SIGTERM', () => _shutdown('SIGTERM'));
+process.on('SIGINT', () => _shutdown('SIGINT'));
+
+client.login(process.env.DISCORD_TOKEN).catch(e => {
+  console.error("Failed to login:", e);
+});
