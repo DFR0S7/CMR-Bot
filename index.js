@@ -1748,37 +1748,49 @@ client.on('messageCreate', async msg => {
   }
 if (msg.author.bot || !msg.guild || !msg.channel.isTextBased()) return;
 
+// ───────────────────────────────────────────────
+// Game results Reminder
+// ───────────────────────────────────────────────
+  // ── Stream reminder logic ──
+  if (msg.author.bot || !msg.guild || !msg.channel.isTextBased()) return;
+  
   // Only watch team channels (adjust names or parent category as needed)
-  const isTeamChannel = msg.channel.parent?.name === 'Team Channels' || 
-                        msg.channel.name.toLowerCase().includes('team-') || 
-                        msg.channel.name.toLowerCase().includes('-team');
+  const isTeamChannel = msg.channel.parent?.name === 'Team Channels' ||
 
   if (!isTeamChannel) return;
 
-  const content = msg.content.toLowerCase();
-  const hasStreamLink = content.includes('youtube.com') || 
-                        content.includes('youtu.be') || 
-                        content.includes('twitch.tv');
+  const content = msg.content;
+  
+  // Improved regex to catch most YouTube/Twitch links
+  const streamRegex = /https?:\/\/(?:www\.)?(?:youtube\.com|youtu\.be|twitch\.tv|youtube\.com\/shorts)\/[^\s<>"')]+/i;
 
-  if (!hasStreamLink) return;
-
+  if (!streamRegex.test(content)) {
+    // Log for debugging
+    console.log('[stream-reminder] No stream link in', msg.channel.name);
+    return;
+  }
   console.log(`[stream-reminder] Detected stream link in ${msg.channel.name} by ${msg.author.tag}`);
-
-  // Wait 45 minutes (2700000 ms = 45 * 60 * 1000)
+ // Optional: require keywords like "live", "stream", "game", "watch" to reduce false positives
+  const hasGameContext = /live|stream|game|watch|vs|playing/i.test(content);
+  if (!hasGameContext) {
+    console.log('[stream-reminder] Link detected but no game context — skipping');
+    return;
+  }
+  
+// Wait 45 minutes
   setTimeout(async () => {
     try {
-      // Re-fetch message and channel to make sure they still exist
       const channel = await client.channels.fetch(msg.channel.id);
       if (!channel?.isTextBased()) return;
 
       const reminderText = 
-        `<@${msg.author.id}> Just a friendly reminder! ` +
-        `Don't forget to share your game results using `/game-result` 😊`;
+        `<@${msg.author.id}> Friendly reminder! ` +
+        `Please share your game results using the \`/game-result\` command 😊`;
 
       await channel.send(reminderText);
-      console.log(`[stream-reminder] Sent reminder to ${msg.author.tag} in ${msg.channel.name}`);
+      console.log(`[stream-reminder] Successfully sent reminder in ${msg.channel.name}`);
     } catch (err) {
-      console.error('[stream-reminder] Failed to send reminder:', err);
+      console.error('[stream-reminder] Failed to send reminder:', err.message);
     }
   }, 45 * 60 * 1000);
 });
