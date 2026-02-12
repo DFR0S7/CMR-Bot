@@ -525,6 +525,67 @@ function findTeamByName(teams, searchName) {
          teams.find(t => t.name?.toLowerCase().includes(needle));
 }
 
+/**
+ * Update team records in the database after a game
+ * @param {Object} params - Update parameters
+ * @param {number} params.season - Current season number
+ * @param {Object} params.team - Team object with id, name, taken_by, taken_by_name
+ * @param {boolean} params.didWin - Whether this team won
+ * @param {boolean} params.opponentIsUserControlled - Whether opponent is user-controlled
+ * @param {boolean} params.opponentDidWin - Whether opponent won (for user_wins/losses tracking)
+ * @returns {Promise<boolean>} Success status
+ */
+async function updateTeamRecords({ season, team, didWin, opponentIsUserControlled, opponentDidWin }) {
+  try {
+    console.log(`[updateTeamRecords] Updating records for ${team.name} (Season ${season})`);
+    
+    // Fetch existing record
+    const { data: existing, error: fetchError } = await supabase
+      .from('records')
+      .select('wins, losses, user_wins, user_losses')
+      .eq('season', season)
+      .eq('team_id', team.id)
+      .maybeSingle();
+
+    if (fetchError) {
+      console.error(`[updateTeamRecords] Fetch error for ${team.name}:`, fetchError);
+      return false;
+    }
+
+    // Calculate new values
+    const newWins = (existing?.wins || 0) + (didWin ? 1 : 0);
+    const newLosses = (existing?.losses || 0) + (!didWin ? 1 : 0);
+    const newUserWins = (existing?.user_wins || 0) + (opponentIsUserControlled && didWin ? 1 : 0);
+    const newUserLosses = (existing?.user_losses || 0) + (opponentIsUserControlled && !didWin ? 1 : 0);
+
+    console.log(`[updateTeamRecords] ${team.name}: ${existing?.wins || 0}-${existing?.losses || 0} → ${newWins}-${newLosses} (user: ${newUserWins}-${newUserLosses})`);
+
+    // Upsert the record
+    const { error: upsertError } = await supabase.from('records').upsert({
+      season: season,
+      team_id: team.id,
+      team_name: team.name,
+      taken_by: team.taken_by,
+      taken_by_name: team.taken_by_name,
+      wins: newWins,
+      losses: newLosses,
+      user_wins: newUserWins,
+      user_losses: newUserLosses
+    }, { onConflict: 'season,team_id' });
+
+    if (upsertError) {
+      console.error(`[updateTeamRecords] Upsert error for ${team.name}:`, upsertError);
+      return false;
+    }
+
+    console.log(`[updateTeamRecords] Successfully updated ${team.name}`);
+    return true;
+  } catch (err) {
+    console.error(`[updateTeamRecords] Unexpected error for ${team.name}:`, err);
+    return false;
+  }
+}
+
 // ═════════════════════════════════════════════════════════════
 // BOT READY EVENT
 // ═════════════════════════════════════════════════════════════
@@ -923,62 +984,45 @@ client.on('interactionCreate', async interaction => {
       console.log('[game-result] Result inserted successfully');
 
       const isOppControlled = !!opponentTeam.taken_by;
+      const oppWon = !resultIsWin;
 
       // Update records for user team
       console.log('[game-result] Updating records for user team...');
-      try {
-        const { data: rec } = await supabase
-          .from('records')
-          .select('wins, losses, user_wins, user_losses')
-          .eq('season', currentSeason)
-          .eq('team_id', userTeam.id)
-          .maybeSingle();
-
-        await supabase.from('records').upsert({
-          season: currentSeason,
-          team_id: userTeam.id,
-          team_name: userTeam.name,
+      const userTeamUpdated = await updateTeamRecords({
+        season: currentSeason,
+        team: {
+          id: userTeam.id,
+          name: userTeam.name,
           taken_by: userTeam.taken_by,
-          taken_by_name: userTeam.taken_by_name || interaction.user.username,
-          wins: (rec?.wins || 0) + (resultIsWin ? 1 : 0),
-          losses: (rec?.losses || 0) + (!resultIsWin ? 1 : 0),
-          user_wins: (rec?.user_wins || 0) + (isOppControlled && resultIsWin ? 1 : 0),
-          user_losses: (rec?.user_losses || 0) + (isOppControlled && !resultIsWin ? 1 : 0)
-        }, { onConflict: 'season,team_id' });
+          taken_by_name: userTeam.taken_by_name || interaction.user.username
+        },
+        didWin: resultIsWin,
+        opponentIsUserControlled: isOppControlled,
+        opponentDidWin: oppWon
+      });
 
-        console.log('[game-result] User team records upserted');
-      } catch (e) {
-        console.error('[game-result] Failed to update user team records:', e);
+      if (!userTeamUpdated) {
+        console.warn('[game-result] User team records update had issues, but continuing...');
       }
 
       // Update records for opponent team (if controlled)
       if (isOppControlled) {
         console.log('[game-result] Updating records for opponent...');
-        try {
-          const { data: oppRec } = await supabase
-            .from('records')
-            .select('wins, losses, user_wins, user_losses')
-            .eq('season', currentSeason)
-            .eq('team_id', opponentTeam.id)
-            .maybeSingle();
-
-          const oppWins = !resultIsWin;
-
-          await supabase.from('records').upsert({
-            season: currentSeason,
-            team_id: opponentTeam.id,
-            team_name: opponentTeam.name,
+        const oppTeamUpdated = await updateTeamRecords({
+          season: currentSeason,
+          team: {
+            id: opponentTeam.id,
+            name: opponentTeam.name,
             taken_by: opponentTeam.taken_by,
-            taken_by_name: opponentTeam.taken_by_name,
-            wins: (oppRec?.wins || 0) + (oppWins ? 1 : 0),
-            losses: (oppRec?.losses || 0) + (!oppWins ? 1 : 0),
-            user_wins: (oppRec?.user_wins || 0) + (resultIsWin ? 1 : 0),
-            user_losses: (oppRec?.user_losses || 0) + (!resultIsWin ? 1 : 0)
-          }, { onConflict: 'season,team_id' });
+            taken_by_name: opponentTeam.taken_by_name
+          },
+          didWin: oppWon,
+          opponentIsUserControlled: true, // User team is always user-controlled
+          opponentDidWin: resultIsWin
+        });
 
-          console.log('[game-result] Opponent records upserted');
-        } catch (e) {
-          console.error('[game-result] Failed to update opponent records:', e);
+        if (!oppTeamUpdated) {
+          console.warn('[game-result] Opponent team records update had issues, but continuing...');
         }
       }
 
@@ -1060,9 +1104,15 @@ client.on('interactionCreate', async interaction => {
     const summary = interaction.options.getString('summary');
 
     try {
-      console.log('[any-game-result] Looking up teams...');
+      // Get current season
+      console.log('[any-game-result] Fetching current season...');
+      const { currentSeason } = await getCurrentSeasonAndWeek();
+      console.log(`[any-game-result] Using season ${currentSeason}, week ${week}`);
 
-      const { data: allTeams } = await supabase.from('teams').select('*').limit(1000);
+      console.log('[any-game-result] Looking up teams...');
+      const { data: allTeams, error: teamsError } = await supabase.from('teams').select('*').limit(1000);
+      
+      if (teamsError) throw teamsError;
 
       const homeTeam = findTeamByName(allTeams, homeTeamName);
       const awayTeam = findTeamByName(allTeams, awayTeamName);
@@ -1070,15 +1120,19 @@ client.on('interactionCreate', async interaction => {
       if (!homeTeam) return interaction.editReply({ content: `Home team "${homeTeamName}" not found.`, flags: 64 });
       if (!awayTeam) return interaction.editReply({ content: `Away team "${awayTeamName}" not found.`, flags: 64 });
 
-      const homeResult = homeScore > awayScore ? 'W' : 'L';
-      const awayResult = homeScore > awayScore ? 'L' : 'W';
+      const homeWon = homeScore > awayScore;
+      const awayWon = !homeWon;
+      const homeResult = homeWon ? 'W' : 'L';
 
       const isHomeUserControlled = !!homeTeam.taken_by;
       const isAwayUserControlled = !!awayTeam.taken_by;
 
+      console.log(`[any-game-result] Home: ${homeTeam.name} (${isHomeUserControlled ? 'user' : 'AI'})`);
+      console.log(`[any-game-result] Away: ${awayTeam.name} (${isAwayUserControlled ? 'user' : 'AI'})`);
+
       console.log('[any-game-result] Inserting result...');
       const insert = await supabase.from('results').insert([{
-        season: 1,
+        season: currentSeason,
         week: week,
         user_team_id: homeTeam.id,
         user_team_name: homeTeam.name,
@@ -1093,49 +1147,30 @@ client.on('interactionCreate', async interaction => {
       }]);
 
       if (insert.error) throw insert.error;
+      console.log('[any-game-result] Result inserted successfully');
 
-      // Update records for home team
+      // Update records for home team (if user-controlled)
       if (isHomeUserControlled) {
-        const { data: existing } = await supabase
-          .from('records')
-          .select('*')
-          .eq('season', 1)
-          .eq('team_id', homeTeam.id)
-          .maybeSingle();
-
-        await supabase.from('records').upsert({
-          season: 1,
-          team_id: homeTeam.id,
-          team_name: homeTeam.name,
-          taken_by: homeTeam.taken_by,
-          taken_by_name: homeTeam.taken_by_name,
-          wins: (existing?.wins || 0) + (homeResult === 'W' ? 1 : 0),
-          losses: (existing?.losses || 0) + (homeResult === 'L' ? 1 : 0),
-          user_wins: (existing?.user_wins || 0) + (isAwayUserControlled && homeResult === 'W' ? 1 : 0),
-          user_losses: (existing?.user_losses || 0) + (isAwayUserControlled && homeResult === 'L' ? 1 : 0)
-        }, { onConflict: 'season,team_id' });
+        console.log('[any-game-result] Updating records for home team...');
+        await updateTeamRecords({
+          season: currentSeason,
+          team: homeTeam,
+          didWin: homeWon,
+          opponentIsUserControlled: isAwayUserControlled,
+          opponentDidWin: awayWon
+        });
       }
 
-      // Update records for away team
+      // Update records for away team (if user-controlled)
       if (isAwayUserControlled) {
-        const { data: existing } = await supabase
-          .from('records')
-          .select('*')
-          .eq('season', 1)
-          .eq('team_id', awayTeam.id)
-          .maybeSingle();
-
-        await supabase.from('records').upsert({
-          season: 1,
-          team_id: awayTeam.id,
-          team_name: awayTeam.name,
-          taken_by: awayTeam.taken_by,
-          taken_by_name: awayTeam.taken_by_name,
-          wins: (existing?.wins || 0) + (awayResult === 'W' ? 1 : 0),
-          losses: (existing?.losses || 0) + (awayResult === 'L' ? 1 : 0),
-          user_wins: (existing?.user_wins || 0) + (isHomeUserControlled && awayResult === 'W' ? 1 : 0),
-          user_losses: (existing?.user_losses || 0) + (isHomeUserControlled && awayResult === 'L' ? 1 : 0)
-        }, { onConflict: 'season,team_id' });
+        console.log('[any-game-result] Updating records for away team...');
+        await updateTeamRecords({
+          season: currentSeason,
+          team: awayTeam,
+          didWin: awayWon,
+          opponentIsUserControlled: isHomeUserControlled,
+          opponentDidWin: homeWon
+        });
       }
 
       // Post box score to #news-feed
@@ -1145,15 +1180,19 @@ client.on('interactionCreate', async interaction => {
         if (newsChannel) {
           const embed = {
             title: `Manually Entered Result: ${homeTeam.name} vs ${awayTeam.name}`,
-            color: homeResult === 'W' ? 0x00ff00 : 0xff0000,
-            description: `${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}\nSummary: ${summary || 'No summary'}`,
+            color: homeWon ? 0x00ff00 : 0xff0000,
+            description: `${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}\nWeek ${week}, Season ${currentSeason}\nSummary: ${summary || 'No summary'}`,
             timestamp: new Date()
           };
-          await newsChannel.send({ embeds: [embed] }).catch(() => {});
+          await newsChannel.send({ embeds: [embed] }).catch(e => {
+            console.error('[any-game-result] News-feed post failed:', e);
+          });
+        } else {
+          console.warn('[any-game-result] news-feed channel not found');
         }
       }
 
-      await interaction.editReply(`✅ Game result entered for Week ${week}: ${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}`);
+      await interaction.editReply(`✅ Game result entered for Season ${currentSeason}, Week ${week}: ${homeTeam.name} ${homeScore} - ${awayTeam.name} ${awayScore}`);
     } catch (err) {
       console.error('[any-game-result] Error:', err);
       await interaction.editReply({ content: `Error entering result: ${err.message}`, flags: 64 });
