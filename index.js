@@ -709,6 +709,7 @@ client.on('interactionCreate', async interaction => {
   console.log('[game-result] Started for', interaction.user.tag);
 
   let opponentTeam = null;
+  let isOpponentUserControlled = false;
 
   const opponentName = interaction.options.getString('opponent');
   const userScore = interaction.options.getInteger('your_score');
