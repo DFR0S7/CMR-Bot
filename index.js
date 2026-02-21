@@ -124,6 +124,9 @@ const client = new Client({
 
 const jobOfferUsed = new Set();
 
+// Track active stream reminders: Map<userId, timeoutId>
+const activeStreamReminders = new Map();
+
 // ═════════════════════════════════════════════════════════════
 // SLASH COMMAND DEFINITIONS
 // ═════════════════════════════════════════════════════════════
@@ -1010,6 +1013,13 @@ client.on('interactionCreate', async interaction => {
       }
 
       console.log('[game-result] Result inserted successfully');
+
+      // Cancel any pending stream reminder for this user
+      if (activeStreamReminders.has(interaction.user.id)) {
+        clearTimeout(activeStreamReminders.get(interaction.user.id));
+        activeStreamReminders.delete(interaction.user.id);
+        console.log(`[game-result] Cancelled stream reminder for ${interaction.user.tag}`);
+      }
 
       const isOppControlled = !!opponentTeam.taken_by;
       const oppWon = !resultIsWin;
@@ -1920,11 +1930,20 @@ client.on('messageCreate', async msg => {
 
   console.log(`[stream-reminder] Detected stream link in ${msg.channel.name} by ${msg.author.tag}`);
 
+  // Cancel any existing reminder for this user
+  if (activeStreamReminders.has(msg.author.id)) {
+    clearTimeout(activeStreamReminders.get(msg.author.id));
+    console.log(`[stream-reminder] Cancelled previous reminder for ${msg.author.tag}`);
+  }
+
   // Schedule reminder 45 minutes later
-  setTimeout(async () => {
+  const timeoutId = setTimeout(async () => {
     try {
       const channel = await client.channels.fetch(msg.channel.id);
-      if (!channel?.isTextBased()) return;
+      if (!channel?.isTextBased()) {
+        activeStreamReminders.delete(msg.author.id);
+        return;
+      }
 
       const reminderText = 
         `<@${msg.author.id}> Friendly reminder! ` +
@@ -1934,8 +1953,15 @@ client.on('messageCreate', async msg => {
       console.log(`[stream-reminder] Sent reminder in ${msg.channel.name}`);
     } catch (err) {
       console.error('[stream-reminder] Failed to send reminder:', err.message);
+    } finally {
+      // Clean up after sending or failing
+      activeStreamReminders.delete(msg.author.id);
     }
   }, STREAM_REMINDER_DELAY);
+
+  // Store the timeout ID so we can cancel it later
+  activeStreamReminders.set(msg.author.id, timeoutId);
+  console.log(`[stream-reminder] Reminder scheduled for ${msg.author.tag} in ${STREAM_REMINDER_DELAY / 60000} minutes`);
 });
 
 // ═════════════════════════════════════════════════════════════
